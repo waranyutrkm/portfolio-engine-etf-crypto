@@ -1,0 +1,1767 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>Global Portfolio Engine v45.1 — Multi-Asset Support</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Advanced Quant Portfolio Backtesting Engine - Crypto (Binance) & ETF (Yahoo) Support">
+
+<!-- ================= LIBRARIES ================= -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Sarabun','sans-serif'],
+        mono: ['JetBrains Mono','monospace']
+      },
+      colors: {
+        brand: { 500:'#FCD535', 600:'#E5B80B', 400:'#FDE06D' }, // Binance Yellow
+        stock: { 500:'#3b82f6', 600:'#2563eb', 400:'#60a5fa' }, // Stock Blue
+        dark: { 900:'#181A20', 800:'#1E2329', 700:'#2B3139', 600:'#474D57' },
+        acc: { green:'#0ECB81', red:'#F6465D', blue:'#3b82f6' }
+      }
+    }
+  }
+}
+</script>
+
+<style>
+body { transition: background-color .3s, color .3s; }
+.glass {
+  background: rgba(255,255,255,.98);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(0,0,0,.05);
+}
+.dark .glass {
+  background: rgba(30,35,41,.98);
+  border-color: #2B3139;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+.custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #555; }
+
+.pipeline-step {
+    position: relative;
+    padding: 20px;
+    background: linear-gradient(145deg, #ffffff, #f9fafb);
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    text-align: center;
+    transition: transform 0.2s;
+    z-index: 10;
+}
+.dark .pipeline-step {
+    background: linear-gradient(145deg, #1E2329, #181A20);
+    border-color: #2B3139;
+}
+.pipeline-step:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+.pipeline-connector {
+    position: absolute;
+    top: 50%;
+    right: -25px;
+    width: 25px;
+    height: 2px;
+    background: #e5e7eb;
+    z-index: 0;
+}
+.dark .pipeline-connector { background: #2B3139; }
+@media (max-width: 768px) {
+    .pipeline-connector {
+        top: auto; bottom: -25px; right: 50%;
+        width: 2px; height: 25px;
+    }
+}
+
+.opt-group { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-bottom: 10px; position: relative; }
+.dark .opt-group { border-color: #2B3139; }
+.opt-group-label { position: absolute; top: -7px; left: 8px; background: #fff; padding: 0 4px; font-size: 9px; font-weight: 700; color: #848E9C; text-transform: uppercase; letter-spacing: 0.5px; }
+.dark .opt-group-label { background: #1E2329; color: #94a3b8; }
+
+.opt-input { background: transparent; border: 1px solid #ddd; border-radius: 6px; padding: 4px 8px; font-family: 'JetBrains Mono'; font-size: 10px; outline: none; transition: all 0.2s; width: 100%; color: inherit; }
+.dark .opt-input { border-color: #444; }
+.opt-input:focus { border-color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
+.opt-label-mini { font-size: 9px; color: #848E9C; display: flex; align-items: center; gap: 4px; margin-bottom: 2px; font-weight: 600; }
+
+.mc-stat-box { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; text-align: center; }
+.dark .mc-stat-box { background: rgba(0,0,0,0.2); border-color: rgba(255,255,255,0.05); }
+
+/* Heatmap Specifics */
+.heatmap-table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono'; font-size: 10px; }
+.heatmap-table th { padding: 8px; text-align: center; font-weight: bold; color: #94a3b8; background: rgba(0,0,0,0.03); border-bottom: 1px solid rgba(0,0,0,0.05); }
+.dark .heatmap-table th { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.05); }
+.heatmap-table td { padding: 8px; text-align: center; border-bottom: 1px solid rgba(0,0,0,0.02); }
+.dark .heatmap-table td { border-color: rgba(255,255,255,0.02); }
+
+/* Table & Scroll */
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: #3b82f6; }
+
+/* === GLOBAL TOOLTIP SYSTEM (JS Powered) === */
+.has-tooltip { 
+    position: relative; cursor: help; display: inline-flex; align-items: center; justify-content: center; 
+    width: 12px; height: 12px; border-radius: 50%; background: #e2e8f0; color: #64748b; font-size: 8px; 
+    transition: all 0.2s; z-index: 10;
+}
+.dark .has-tooltip { background: #2B3139; color: #94a3b8; }
+.has-tooltip:hover { background: #3b82f6; color: #fff; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); transform: scale(1.1); }
+
+/* The Hidden Source Content */
+.tooltip-source { display: none; }
+
+/* The Global Floating Tooltip */
+#global-tooltip {
+    position: fixed;
+    visibility: hidden;
+    opacity: 0;
+    width: 240px;
+    background: #111827;
+    color: #f3f4f6;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 1.5;
+    border: 1px solid #374151;
+    border-top: 3px solid #3b82f6;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    text-align: left;
+    white-space: normal;
+    z-index: 999999; /* Highest possible layer */
+    transition: opacity 0.15s ease-out;
+}
+
+#global-tooltip strong { color: #3b82f6; display: block; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; }
+#global-tooltip code { background: rgba(59, 130, 246, 0.15); padding: 2px 4px; rounded: 3px; font-family: 'JetBrains Mono', monospace; color: #60a5fa; display: block; margin: 4px 0; border: 1px dashed rgba(59, 130, 246, 0.3); text-align: center; }
+#global-tooltip em { display: block; margin-top: 4px; color: #9ca3af; font-style: italic; font-size: 9px; }
+
+/* Formula Card Update */
+.formula-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 20px; transition: all 0.2s; position: relative; overflow: hidden; }
+.dark .formula-card { background: #1E2329; border-color: #2B3139; }
+.formula-card:hover { transform: translateY(-3px); box-shadow: 0 8px 16px rgba(0,0,0,0.08); border-color: #3b82f6; }
+</style>
+</head>
+
+<body class="bg-[#F0F3F5] dark:bg-[#0B0E11] text-[#1E2329] dark:text-[#EAECEF] min-h-screen font-sans">
+
+<!-- GLOBAL TOOLTIP CONTAINER -->
+<div id="global-tooltip"></div>
+
+<!-- HEADER -->
+<header class="glass sticky top-0 z-40 border-b shadow-sm">
+  <div class="max-w-[1800px] mx-auto px-4 h-14 flex justify-between items-center">
+    <div class="flex items-center gap-3">
+      <h1 class="font-bold text-base flex items-center gap-2 text-dark-900 dark:text-white">
+        <span class="text-xl">🛡️</span> GPE <span class="text-[9px] bg-stock-500 text-white px-1.5 py-0.5 rounded font-bold mono">v45.1 ETF SUPPORT</span>
+      </h1>
+    </div>
+    <nav class="flex gap-1 bg-gray-100 dark:bg-dark-800 p-1 rounded-lg">
+        <button onclick="UI.switchTab('dashboard')" id="btn-tab-dashboard" class="px-4 py-1 text-[10px] font-bold rounded bg-white dark:bg-dark-900 shadow-sm text-stock-600 transition-all">Dashboard</button>
+        <button onclick="UI.switchTab('workflow')" id="btn-tab-workflow" class="px-4 py-1 text-[10px] font-bold rounded text-gray-400 hover:text-stock-500 transition-all">System Logic</button>
+    </nav>
+    <div class="flex items-center gap-3">
+        <div class="hidden md:flex flex-col items-end mr-2">
+            <span class="text-[8px] font-bold text-gray-400 uppercase tracking-widest">Market Source</span>
+            <span id="market-source-badge" class="text-[9px] font-bold text-stock-500 bg-stock-500/10 px-1 rounded animate-pulse">YAHOO FINANCE (REAL)</span>
+        </div>
+        <button onclick="UI.exportToCSV()" class="text-[10px] font-bold uppercase tracking-wider bg-green-500/10 text-green-600 px-3 py-1 rounded hover:bg-green-500 hover:text-white transition-all"><i class="fas fa-file-csv"></i> CSV</button>
+        <button onclick="UI.toggleTheme()" class="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-dark-800 hover:text-stock-500"><i class="fas fa-adjust"></i></button>
+    </div>
+  </div>
+</header>
+
+<div class="max-w-[1800px] mx-auto px-4 py-6 grid grid-cols-12 gap-6">
+
+<!-- SIDEBAR -->
+<aside class="col-span-12 xl:col-span-2 space-y-3">
+<div class="glass rounded-xl p-4 border-t-4 border-t-stock-500 sticky top-20 shadow-lg z-30">
+  <div class="mb-3 flex items-center justify-between">
+    <h3 class="text-[10px] font-black uppercase text-gray-500 tracking-widest">Config</h3>
+    <span class="text-[8px] bg-stock-500/20 text-stock-600 px-1.5 py-0.5 rounded font-bold">PORTFOLIO</span>
+  </div>
+
+  <div class="opt-group bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800">
+      <span class="opt-group-label text-blue-500">Market Mode</span>
+      <div class="mb-1">
+          <label class="opt-label-mini">Asset Class Source</label>
+          <select id="cfg-market-type" onchange="UI.changeMarketMode(this.value)" class="opt-input font-bold text-stock-600 dark:text-stock-400 cursor-pointer bg-white dark:bg-dark-900">
+            <option value="ETF" selected>Global ETF (Yahoo)</option>
+            <option value="CRYPTO">Crypto (Binance)</option>
+          </select>
+      </div>
+  </div>
+
+  <div class="opt-group">
+      <span class="opt-group-label">Core Logic</span>
+      <div class="mb-2">
+          <label class="opt-label-mini">
+              Strategy
+              <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Strategy (กลยุทธ์)</strong>วิธีการจัดสรรน้ำหนักการลงทุน (Weight Allocation) เช่น Equal Weight คือหารเท่า, Rank คือเน้นตัวที่ผลงานดี</div></span>
+          </label>
+          <select id="cfg-strategy" class="opt-input font-bold text-stock-600 dark:text-stock-400 cursor-pointer">
+            <option value="ALL" selected>★ RUN ALL (Tournament)</option>
+            <option value="Equal">1. Equal Weight (1/N)</option>
+            <option value="Rank">2. Rank All (Score)</option>
+            <option value="Top3">3. Top 3 Leader (Equal)</option>
+            <option value="Top3Rank">4. Top 3 Leader (Rank)</option>
+            <option value="Top50">5. Top 50% Filtered</option>
+            <option value="AbsMom">6. Absolute Mom (Trend)</option>
+            <option value="DualMom">7. Dual Momentum</option>
+            <option value="InvVol">8. Inverse Volatility</option>
+            <option value="AAA">9. Adaptive Aggressive</option>
+          </select>
+      </div>
+      <div>
+          <label class="opt-label-mini">
+              Benchmark
+              <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Benchmark (ตัวเปรียบเทียบ)</strong>สินทรัพย์อ้างอิงเพื่อวัดผลงาน ปกติใช้ SPY (หุ้นโลก) หรือ BTC (คริปโต)</div></span>
+          </label>
+          <input id="cfg-bench" value="SPY" class="opt-input uppercase text-center font-bold text-stock-500">
+      </div>
+  </div>
+
+  <div class="opt-group">
+      <span class="opt-group-label">Assets Universe</span>
+      <div class="flex gap-1 mb-2">
+        <input id="cfg-add" placeholder="SYMBOL" class="opt-input flex-1 uppercase">
+        <button onclick="UI.addAsset()" class="w-6 h-6 rounded bg-gray-200 dark:bg-dark-700 hover:bg-stock-500 hover:text-white transition-all text-[10px]"><i class="fas fa-plus"></i></button>
+        <span class="has-tooltip self-center ml-1"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Add Asset</strong>พิมพ์ชื่อ Ticker (เช่น SPY, GLD, BTC) แล้วกด + เพื่อเพิ่มเข้าพอร์ต</div></span>
+      </div>
+      <select id="quick-add-select" onchange="UI.suggestAsset(this.value); this.value='';" class="opt-input cursor-pointer mb-2 text-gray-500">
+          <!-- Populated by JS -->
+      </select>
+      <div id="asset-list" class="flex flex-wrap gap-1 max-h-[100px] overflow-y-auto custom-scrollbar content-start"></div>
+  </div>
+
+  <div class="opt-group">
+      <span class="opt-group-label">Time & Params</span>
+      <div class="grid grid-cols-2 gap-2 mb-2">
+          <div>
+              <label class="opt-label-mini">Start <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Start Date</strong>วันเริ่มต้น Backtest (ETF ดึงได้สูงสุด 5 ปี)</div></span></label>
+              <input type="date" id="cfg-start" class="opt-input px-0 text-center">
+          </div>
+          <div>
+              <label class="opt-label-mini">End <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>End Date</strong>วันสิ้นสุด Backtest</div></span></label>
+              <input type="date" id="cfg-end" class="opt-input px-0 text-center">
+          </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mb-2">
+          <div>
+              <label class="opt-label-mini">Lookback <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Lookback Period</strong>ระยะเวลา (วัน) ที่ใช้คำนวณโมเมนตัมหรือความผันผวนย้อนหลัง ใส่ได้หลายค่าคั่นด้วยลูกน้ำ (,) เพื่อคำนวณแบบ Grid</div></span></label>
+              <input id="cfg-lookback" value="60, 120" class="opt-input text-center">
+          </div>
+          <div>
+              <label class="opt-label-mini">Rebal <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Rebalance Period</strong>ความถี่ในการปรับพอร์ต (วัน) ใส่ได้หลายค่า (,) เพื่อทดสอบหาค่าที่ดีที่สุด</div></span></label>
+              <input id="cfg-rebal" value="30, 90" class="opt-input text-center">
+          </div>
+      </div>
+      <div>
+          <label class="opt-label-mini">Risk Free (%) <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Risk Free Rate</strong>อัตราผลตอบแทนพันธบัตร ใช้คำนวณ Sharpe Ratio (ปกติ 2-4%)</div></span></label>
+          <input id="cfg-rf" value="3.0" type="number" step="0.1" class="opt-input text-center">
+      </div>
+  </div>
+
+  <div class="opt-group">
+      <span class="opt-group-label">Money Management</span>
+      <div class="grid grid-cols-2 gap-2 mb-2">
+          <div>
+              <label class="opt-label-mini text-stock-600">Initial ($) <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Initial Capital</strong>เงินลงทุนก้อนแรกที่ลง ณ วันเริ่มต้น</div></span></label>
+              <input id="cfg-initial" value="10000" type="number" class="opt-input text-center font-bold">
+          </div>
+          <div>
+              <label class="opt-label-mini text-acc-green">DCA ($) <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>DCA Amount</strong>จำนวนเงินที่เติมเพิ่มเข้าพอร์ตในทุกรอบ Rebalance. <br/>ใส่ 0 = Lump Sum (Rebalance ปกติ)<br/>ใส่ > 0 = Smart DCA (No Sell)</div></span></label>
+              <input id="cfg-dca" value="0" type="number" class="opt-input text-center font-bold text-acc-green">
+          </div>
+      </div>
+      <div class="grid grid-cols-3 gap-1">
+          <div>
+              <label class="opt-label-mini text-red-500">Front% <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Front-end Fee</strong>ค่าธรรมเนียมแรกเข้า (หักครั้งเดียวตอนเริ่ม)</div></span></label>
+              <input id="cfg-frontend-fee" value="0.00" type="number" step="0.01" class="opt-input text-red-500 font-bold text-center">
+          </div>
+          <div>
+              <label class="opt-label-mini text-blue-500">Mgmt% <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Management Fee</strong>ค่าธรรมเนียมบริหารจัดการรายปี (หักเฉลี่ยรายวันจาก NAV)</div></span></label>
+              <input id="cfg-mgmt-fee" value="0.00" type="number" step="0.01" class="opt-input text-blue-500 font-bold text-center">
+          </div>
+          <div>
+              <label class="opt-label-mini text-gray-500">Trade% <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Trading Fee</strong>ค่าคอมมิชชั่นการเทรด (หักทุกครั้งที่มีการซื้อขาย/Rebalance) ปกติ Binance 0.1%</div></span></label>
+              <input id="cfg-fee" value="0.10" type="number" step="0.01" class="opt-input text-gray-500 text-center">
+          </div>
+      </div>
+  </div>
+
+  <button onclick="Engine.runBatch()" class="w-full bg-gradient-to-r from-stock-500 to-stock-400 py-3 mt-1 rounded-lg font-bold text-white shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-xs tracking-wide uppercase">
+    <i class="fas fa-play"></i> <span>Fetch & Run Backtest</span>
+  </button>
+</div>
+</aside>
+
+<!-- MAIN CONTENT -->
+<div class="col-span-12 xl:col-span-10 space-y-6">
+
+    <!-- DASHBOARD TAB -->
+    <div id="view-dashboard" class="space-y-6 animate-fade-in">
+        <!-- KPIs with Tooltips -->
+        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          
+          <!-- CAGR -->
+          <div class="glass p-4 rounded-xl border-l-4 border-l-acc-green shadow-sm kpi-card">
+            <div class="flex items-center text-[9px] uppercase font-bold text-gray-400 mb-1">
+                Net CAGR 
+                <span class="has-tooltip"><i class="fas fa-question"></i>
+                    <div class="tooltip-source">
+                        <strong>CAGR (Compound Annual Growth Rate)</strong>
+                        อัตราการเติบโตเฉลี่ยต่อปีแบบทบต้น (คำนวณจาก Time-Weighted Return)<br/>
+                        <em>จากข้อมูลจริงตลาด</em>
+                    </div>
+                </span>
+            </div>
+            <div id="kpi-cagr" class="text-xl font-bold mono text-dark-900 dark:text-white">-</div>
+            <div id="bench-cagr" class="text-[9px] text-gray-400 mt-1">Bench: -</div>
+          </div>
+
+          <!-- Sharpe -->
+          <div class="glass p-4 rounded-xl border-l-4 border-l-stock-500 shadow-sm kpi-card">
+            <div class="flex items-center text-[9px] uppercase font-bold text-gray-400 mb-1">
+                Sharpe Ratio
+                <span class="has-tooltip"><i class="fas fa-question"></i>
+                    <div class="tooltip-source">
+                        <strong>Sharpe Ratio</strong>
+                        ผลตอบแทนส่วนเกินต่อหนึ่งหน่วยความเสี่ยง (ยิ่งมากยิ่งดี)<br/>
+                        สูตร: <code>(Return - RiskFree) / Volatility</code><br/>
+                        <em>บอกว่าคุ้มค่าเหนื่อยแค่ไหนในการรับความเสี่ยงเพิ่มขึ้น</em>
+                    </div>
+                </span>
+            </div>
+            <div id="kpi-sharpe" class="text-xl font-bold mono text-dark-900 dark:text-white">-</div>
+            <div id="bench-sharpe" class="text-[9px] text-gray-400 mt-1">Bench: -</div>
+          </div>
+
+          <!-- Sortino -->
+          <div class="glass p-4 rounded-xl border-l-4 border-l-blue-500 shadow-sm kpi-card">
+            <div class="flex items-center text-[9px] uppercase font-bold text-gray-400 mb-1">
+                Sortino Ratio
+                <span class="has-tooltip"><i class="fas fa-question"></i>
+                    <div class="tooltip-source">
+                        <strong>Sortino Ratio</strong>
+                        คล้าย Sharpe แต่หารด้วยความผันผวนเฉพาะขาลง (Downside Deviation) เท่านั้น<br/>
+                        สูตร: <code>(Return - RiskFree) / DownsideDev</code><br/>
+                        <em>ไม่ลงโทษความผันผวนขาขึ้น (กำไรพุ่ง) เหมือน Sharpe</em>
+                    </div>
+                </span>
+            </div>
+            <div id="kpi-sortino" class="text-xl font-bold mono text-blue-500">-</div>
+            <div id="bench-sortino" class="text-[9px] text-gray-400 mt-1">Bench: -</div>
+          </div>
+
+          <!-- Calmar -->
+          <div class="glass p-4 rounded-xl border-l-4 border-l-purple-500 shadow-sm kpi-card">
+            <div class="flex items-center text-[9px] uppercase font-bold text-gray-400 mb-1">
+                Calmar Ratio
+                <span class="has-tooltip"><i class="fas fa-question"></i>
+                    <div class="tooltip-source">
+                        <strong>Calmar Ratio</strong>
+                        วัดความคุ้มค่าของกำไรเทียบกับ Max Drawdown<br/>
+                        สูตร: <code>CAGR / |Max Drawdown|</code><br/>
+                        <em>ตัวอย่าง: กำไรปีละ 20%, เคยขาดทุนหนักสุด 10% = 2.0 (เยี่ยม)</em>
+                    </div>
+                </span>
+            </div>
+            <div id="kpi-calmar" class="text-xl font-bold mono text-purple-500">-</div>
+            <div id="bench-calmar" class="text-[9px] text-gray-400 mt-1">Bench: -</div>
+          </div>
+
+          <!-- MDD -->
+          <div class="glass p-4 rounded-xl border-l-4 border-l-acc-red shadow-sm kpi-card">
+            <div class="flex items-center text-[9px] uppercase font-bold text-gray-400 mb-1">
+                Max Drawdown
+                <span class="has-tooltip"><i class="fas fa-question"></i>
+                    <div class="tooltip-source">
+                        <strong>Max Drawdown (MDD)</strong>
+                        เปอร์เซ็นต์การขาดทุนสูงสุดจากยอดดอยถึงหุบเหวในช่วงเวลานั้นๆ<br/>
+                        <em>คำนวณจากประวัติราคาจริง</em>
+                    </div>
+                </span>
+            </div>
+            <div id="kpi-mdd" class="text-xl font-bold mono text-acc-red">-</div>
+            <div id="bench-mdd" class="text-[9px] text-gray-400 mt-1">Bench: -</div>
+          </div>
+
+          <!-- Win Rate -->
+          <div class="glass p-4 rounded-xl border-l-4 border-l-gray-400 shadow-sm kpi-card">
+            <div class="flex items-center text-[9px] uppercase font-bold text-gray-400 mb-1">
+                Win Rate
+                <span class="has-tooltip"><i class="fas fa-question"></i>
+                    <div class="tooltip-source">
+                        <strong>Daily Win Rate</strong>
+                        สัดส่วนจำนวนวันที่พอร์ตมีกำไร (ปิดเขียว) เทียบกับจำนวนวันทั้งหมด<br/>
+                        สูตร: <code>(วันกำไร / วันทั้งหมด) * 100</code>
+                    </div>
+                </span>
+            </div>
+            <div id="kpi-winrate" class="text-xl font-bold mono text-gray-500 dark:text-gray-300">-</div>
+            <div id="bench-winrate" class="text-[9px] text-gray-400 mt-1">Bench: -</div>
+          </div>
+        </div>
+
+        <!-- Main Chart -->
+        <div class="glass p-6 rounded-2xl shadow-xl space-y-4">
+            <div class="flex justify-between items-center">
+                <div><h3 class="text-xs font-bold uppercase text-gray-500 tracking-widest">Growth Analysis</h3><p class="text-[9px] text-gray-400 mono mt-0.5" id="chart-subtitle">Compare vs Benchmark</p></div>
+                <button onclick="UI.toggleLog()" class="text-[9px] font-bold bg-gray-100 dark:bg-dark-800 px-3 py-1 rounded border dark:border-dark-700 mono">LOG SCALE</button>
+            </div>
+            <div class="h-[320px] w-full"><canvas id="chart-equity"></canvas></div>
+            <div class="h-[100px] w-full border-t dark:border-dark-700 pt-2"><canvas id="chart-drawdown"></canvas></div>
+        </div>
+
+        <!-- Surface & MC -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 4D Surface -->
+            <div class="glass p-6 rounded-2xl shadow-xl h-[600px] flex flex-col relative overflow-hidden">
+                <div class="flex justify-between items-center mb-2 z-10 border-b dark:border-dark-700 pb-2">
+                    <h3 class="font-bold text-xs flex items-center gap-2"><span>4D Hyper-Parameter</span><span class="text-[8px] bg-stock-500/20 text-stock-600 px-1.5 rounded font-mono">Full-Grid</span></h3>
+                    <div class="flex gap-2">
+                        <select id="surface-metric" onchange="UI.renderSurface()" class="bg-gray-100 dark:bg-dark-700 text-[9px] rounded px-2 py-1 font-bold outline-none"><option value="sharpe">Sharpe</option><option value="cagr">CAGR (0.x)</option><option value="mdd">MDD (0.x)</option><option value="vol">Vol (0.x)</option></select>
+                        <select id="surface-sd" onchange="UI.renderSurface()" class="bg-gray-100 dark:bg-dark-700 text-[9px] rounded px-2 py-1 font-bold outline-none"><option value="0">SD: Off</option><option value="1">Mean ± 1SD</option><option value="2">Mean ± 2SD</option></select>
+                    </div>
+                </div>
+                <div id="viz-surface" class="flex-1 z-10"></div>
+                <div class="z-20 mt-2 bg-gray-50 dark:bg-dark-800/80 p-3 rounded-xl border dark:border-dark-700 backdrop-blur-sm">
+                    <div class="flex justify-between items-center mb-1"><span class="text-[9px] font-bold uppercase text-gray-500">Timeline Control</span><span id="surface-date-display" class="text-[9px] font-mono text-stock-600">Full</span></div>
+                    <div class="flex items-center gap-2"><button id="btn-play-surface" onclick="UI.toggleSurfaceAnim()" class="w-6 h-6 flex items-center justify-center rounded-full bg-stock-500 hover:scale-110 text-white shadow"><i class="fas fa-play text-[8px]"></i></button><input type="range" id="surface-slider" min="0" max="100" value="100" step="1" oninput="UI.updateSurfaceFromSlider(this.value)" class="accent-stock-500 flex-1"></div>
+                </div>
+            </div>
+
+            <!-- Monte Carlo -->
+            <div class="glass p-6 rounded-2xl shadow-xl h-[600px] flex flex-col relative overflow-hidden">
+                <div class="flex justify-between items-center mb-2 z-10 border-b dark:border-dark-700 pb-2">
+                    <h3 class="font-bold text-xs">🎲 Monte Carlo Forecast (Based on History)</h3>
+                    <div class="flex items-center gap-1"><span class="text-[9px] text-gray-400">Years:</span><input type="number" id="cfg-mc-years" value="1" min="1" max="5" class="w-8 text-center text-[9px] bg-gray-100 dark:bg-dark-700 rounded border dark:border-dark-600"><button onclick="UI.runMonteCarlo()" class="text-[9px] bg-stock-500 text-white px-2 py-0.5 rounded font-bold hover:scale-105 shadow">Sim</button></div>
+                </div>
+                <div class="grid grid-cols-4 gap-2 mb-2 z-10">
+                    <div class="mc-stat-box"><div class="text-[8px] text-gray-400 uppercase">Avg Sharpe</div><div id="mc-avg-sharpe" class="text-[10px] font-bold text-stock-600">-</div></div>
+                    <div class="mc-stat-box"><div class="text-[8px] text-gray-400 uppercase">Avg CAGR</div><div id="mc-avg-cagr" class="text-[10px] font-bold text-acc-green">-</div></div>
+                    <div class="mc-stat-box"><div class="text-[8px] text-gray-400 uppercase">Avg Vol</div><div id="mc-avg-vol" class="text-[10px] font-bold text-gray-300">-</div></div>
+                    <div class="mc-stat-box"><div class="text-[8px] text-gray-400 uppercase">Avg MDD</div><div id="mc-avg-mdd" class="text-[10px] font-bold text-acc-red">-</div></div>
+                </div>
+                <div id="viz-monte-dashboard" class="flex-1 z-10"></div>
+                <div class="z-20 text-[9px] text-gray-400 text-center mt-2 font-mono">
+                    Simulation uses drift/volatility from the real backtest result.
+                </div>
+            </div>
+        </div>
+
+        <!-- Matrix Table -->
+        <div class="glass rounded-2xl overflow-hidden shadow-lg border border-gray-100 dark:border-dark-700 flex flex-col min-h-[500px]">
+            <div class="px-6 py-4 border-b dark:border-dark-700 bg-gray-50/50 dark:bg-dark-800/50 flex justify-between items-center">
+                <h3 class="text-xs font-black uppercase text-gray-600 dark:text-gray-300 tracking-widest">Strategy Matrix</h3>
+                <button onclick="UI.clearFilters()" class="text-[9px] bg-white dark:bg-dark-700 px-3 py-1 rounded border dark:border-dark-600 font-bold hover:text-stock-500">RESET</button>
+            </div>
+            <div class="overflow-x-auto custom-scrollbar flex-1">
+              <table class="w-full text-[10px] mono border-collapse" id="batch-matrix-table">
+                <thead class="bg-gray-100 dark:bg-dark-900 text-gray-400 text-right sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th class="text-left p-3 sortable" onclick="UI.sortBatch('stratFull')">
+                        Strategy <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Strategy</strong>กลยุทธ์การลงทุนที่ใช้ในการคำนวณน้ำหนักสินทรัพย์</div></span> <i class="fas fa-sort"></i>
+                    </th>
+                    <th class="p-3 sortable" onclick="UI.sortBatch('lb')">
+                        LB <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Lookback Period</strong>ระยะเวลาย้อนหลัง (วัน) ที่ใช้คำนวณ Momentum หรือ Volatility</div></span> <i class="fas fa-sort"></i>
+                    </th>
+                    <th class="p-3 sortable" onclick="UI.sortBatch('rb')">
+                        RB <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Rebalance Period</strong>ความถี่ในการปรับพอร์ต (วัน) เช่น ทุก 30 วันปรับหนึ่งครั้ง</div></span> <i class="fas fa-sort"></i>
+                    </th>
+                    <th class="p-3 sortable" onclick="UI.sortBatch('cagr')">
+                        CAGR <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>CAGR</strong>อัตราผลตอบแทนเฉลี่ยต่อปีแบบทบต้น</div></span> <i class="fas fa-sort"></i>
+                    </th>
+                    <th class="p-3 sortable" onclick="UI.sortBatch('sharpe')">
+                        Sharpe <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Sharpe Ratio</strong>ผลตอบแทนเทียบกับความเสี่ยง (ยิ่งมากยิ่งดี)</div></span> <i class="fas fa-sort"></i>
+                    </th>
+                    <th class="p-3 sortable" onclick="UI.sortBatch('sortino')">
+                        Sortino <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Sortino Ratio</strong>คล้าย Sharpe แต่วัดความเสี่ยงเฉพาะขาลง (Downside Risk)</div></span> <i class="fas fa-sort"></i>
+                    </th>
+                    <th class="p-3 sortable" onclick="UI.sortBatch('calmar')">
+                        Calmar <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Calmar Ratio</strong>วัดความคุ้มค่าของกำไรเทียบกับ Max Drawdown</div></span> <i class="fas fa-sort"></i>
+                    </th>
+                    <th class="p-3 sortable" onclick="UI.sortBatch('mdd')">
+                        MDD <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Max Drawdown</strong>จุดขาดทุนสูงสุดที่เคยเกิดขึ้น (วัดจากยอดดอย)</div></span> <i class="fas fa-sort"></i>
+                    </th>
+                  </tr>
+                  <tr class="bg-gray-50 dark:bg-dark-800">
+                    <th class="p-1"><input id="f-strat" placeholder="Search" class="filter-input" oninput="UI.applyBatchFilters()"></th>
+                    <th class="p-1"><input id="f-lb" class="filter-input" oninput="UI.applyBatchFilters()"></th>
+                    <th class="p-1"><input id="f-rb" class="filter-input" oninput="UI.applyBatchFilters()"></th>
+                    <th class="p-1"><input id="f-cagr" placeholder=">" class="filter-input" oninput="UI.applyBatchFilters()"></th>
+                    <th class="p-1"><input id="f-sharpe" placeholder=">" class="filter-input" oninput="UI.applyBatchFilters()"></th>
+                    <th class="p-1"><input id="f-sortino" placeholder=">" class="filter-input" oninput="UI.applyBatchFilters()"></th>
+                    <th class="p-1"><input id="f-calmar" placeholder=">" class="filter-input" oninput="UI.applyBatchFilters()"></th>
+                    <th class="p-1"><input id="f-mdd" placeholder="<" class="filter-input" oninput="UI.applyBatchFilters()"></th>
+                  </tr>
+                </thead>
+                <tbody id="batch-table-body" class="divide-y dark:divide-dark-700 text-right font-medium"></tbody>
+              </table>
+            </div>
+            <div class="px-4 py-2 border-t dark:border-dark-700 bg-gray-50 dark:bg-dark-800 flex justify-between items-center text-[9px] text-gray-500 font-bold">
+                <span id="pagination-info">0-0 of 0</span>
+                <div class="flex gap-1"><button onclick="UI.prevPage()" id="btn-prev" class="pagination-btn" disabled>Prev</button><button onclick="UI.nextPage()" id="btn-next" class="pagination-btn" disabled>Next</button></div>
+            </div>
+        </div>
+
+        <!-- Logs & Maps (Stack Logic + W-Full Fix) -->
+        <div class="flex flex-col gap-6">
+            <div class="glass rounded-2xl overflow-hidden shadow-lg border border-gray-100 dark:border-dark-700">
+                <div class="px-6 py-4 border-b dark:border-dark-700 bg-gray-50/30 flex items-center gap-2">
+                    <h3 class="text-xs font-bold uppercase text-gray-500 tracking-widest">Transaction Logs</h3>
+                    <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Transaction Logs</strong>ประวัติการทำรายการแบบละเอียด <br/>- Lump Sum: แสดง Buy/Sell เป็น % ของพอร์ต <br/>- DCA: แสดงการกระจายเงินก้อนใหม่ 100%</div></span>
+                </div>
+                <div class="overflow-x-auto max-h-[400px] custom-scrollbar"><table class="w-full text-[10px] mono"><tbody id="log-table" class="divide-y dark:divide-dark-700"></tbody></table></div>
+            </div>
+            <div class="glass rounded-2xl overflow-hidden shadow-lg border border-gray-100 dark:border-dark-700 p-6 space-y-6">
+                <div>
+                    <h3 class="text-xs font-bold uppercase text-acc-green mb-4 tracking-widest border-b pb-2 flex items-center gap-2">
+                        Monthly Return Heatmap
+                        <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Monthly Return</strong>ตารางแสดงผลตอบแทนรายเดือน <br/>เขียว = กำไร, แดง = ขาดทุน</div></span>
+                    </h3>
+                    <div id="heatmap-return-container" class="overflow-x-auto custom-scrollbar w-full"></div>
+                </div>
+                <div>
+                    <h3 class="text-xs font-bold uppercase text-acc-red mb-4 tracking-widest border-b pb-2 flex items-center gap-2">
+                        Monthly Drawdown Heatmap
+                        <span class="has-tooltip"><i class="fas fa-question"></i><div class="tooltip-source"><strong>Monthly Drawdown</strong>ตารางแสดงการขาดทุนสูงสุดในแต่ละเดือน (ยิ่งแดงยิ่งเจ็บ) เพื่อดูความเสี่ยงในช่วงวิกฤต</div></span>
+                    </h3>
+                    <div id="heatmap-drawdown-container" class="overflow-x-auto custom-scrollbar w-full"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGE: LOGIC CORE (System Flow + Strategy) -->
+    <div id="view-workflow" class="hidden space-y-12 animate-fade-in pb-20 font-sans">
+        <div class="glass p-12 rounded-[4.5rem] shadow-2xl border border-stock-500/20 max-w-7xl mx-auto">
+            
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-black mb-4 tracking-tighter flex justify-center items-center gap-3">
+                    <span class="bg-stock-500 text-white w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-lg"><i class="fas fa-microchip"></i></span>
+                    Algorithm & Math Glossary
+                </h2>
+                <p class="text-gray-500 text-lg">Detailed breakdown of calculations and logic used in the engine.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
+                 <div class="bg-white dark:bg-dark-800 p-6 rounded-2xl shadow-md border dark:border-dark-700">
+                    <h3 class="font-bold text-lg mb-4 text-stock-600"><i class="fas fa-calculator mr-2"></i>Formula Auditing</h3>
+                    <ul class="space-y-4 text-xs text-gray-600 dark:text-gray-300">
+                        <li class="pb-3 border-b dark:border-dark-700">
+                            <strong class="text-sm text-dark-900 dark:text-white block mb-1">CAGR (Annual Growth)</strong>
+                            <code class="block bg-gray-100 dark:bg-dark-900 p-2 rounded mb-1">(End_Value / Start_Value) ^ (1 / Years) - 1</code>
+                            ใช้วัดอัตราการเติบโตเฉลี่ยแบบทบต้น หากลงทุน 100 บาท เป็น 200 บาทใน 3 ปี CAGR = (200/100)^(1/3) - 1 ≈ 26%
+                        </li>
+                        <li class="pb-3 border-b dark:border-dark-700">
+                            <strong class="text-sm text-dark-900 dark:text-white block mb-1">Sharpe Ratio</strong>
+                            <code class="block bg-gray-100 dark:bg-dark-900 p-2 rounded mb-1">(Avg_Excess_Return * 252) / (Std_Dev * √252)</code>
+                            ใช้วัดความคุ้มค่า ตัวเศษคือผลตอบแทนที่เกินกว่า Risk Free (2%) ตัวส่วนคือความผันผวน ยิ่งสูงยิ่งดี (>1.0 ถือว่าดี)
+                        </li>
+                        <li class="pb-3 border-b dark:border-dark-700">
+                            <strong class="text-sm text-dark-900 dark:text-white block mb-1">Fee Impact</strong>
+                            <code class="block bg-gray-100 dark:bg-dark-900 p-2 rounded mb-1">NAV_New = NAV_Old * (1 - Daily_Mgmt_Fee)</code>
+                            ระบบตัดค่าธรรมเนียมบริหาร (Management Fee) รายวันออกจาก NAV โดยตรงเพื่อความแม่นยำสูงสุด
+                        </li>
+                    </ul>
+                 </div>
+                 
+                 <div class="bg-white dark:bg-dark-800 p-6 rounded-2xl shadow-md border dark:border-dark-700">
+                    <h3 class="font-bold text-lg mb-4 text-blue-500"><i class="fas fa-code-branch mr-2"></i>Data Pipeline</h3>
+                    <div class="space-y-4">
+                        <div class="flex gap-3">
+                            <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 font-bold">1</div>
+                            <div>
+                                <h4 class="font-bold text-sm">Ingest & Clean</h4>
+                                <p class="text-xs text-gray-500">ETF Mode: Yahoo Finance (via Proxy) | Crypto Mode: Binance API</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-3">
+                            <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0 font-bold">2</div>
+                            <div>
+                                <h4 class="font-bold text-sm">Signal Generation</h4>
+                                <p class="text-xs text-gray-500">คำนวณ Momentum (Return/Lookback) และ Volatility (SD)</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-3">
+                            <div class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center flex-shrink-0 font-bold">3</div>
+                            <div>
+                                <h4 class="font-bold text-sm">Weight Allocation</h4>
+                                <p class="text-xs text-gray-500">กำหนดน้ำหนักลงทุนตามกลยุทธ์ (เช่น Equal Weight, Rank Based)</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-3">
+                            <div class="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center flex-shrink-0 font-bold">4</div>
+                            <div>
+                                <h4 class="font-bold text-sm">Execution & Audit</h4>
+                                <p class="text-xs text-gray-500">จำลองการซื้อขาย หักค่าธรรมเนียม และบันทึก Log</p>
+                            </div>
+                        </div>
+                    </div>
+                 </div>
+            </div>
+
+            <!-- SYSTEM FLOW CHART -->
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-20 relative">
+                <!-- Lines -->
+                <div class="absolute top-1/2 left-0 w-full h-[2px] bg-gray-200 dark:bg-dark-700 -z-10 hidden md:block"></div>
+
+                <!-- Step 1 -->
+                <div class="pipeline-step z-10">
+                    <div class="w-14 h-14 mx-auto rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-2xl mb-4 shadow-md border-4 border-white dark:border-dark-800"><i class="fas fa-database"></i></div>
+                    <h5 class="font-bold text-base mb-1">1. Data Ingestion</h5>
+                    <p class="text-[11px] text-gray-500 leading-relaxed">Fetch Daily Close from Yahoo/Binance.</p>
+                    <div class="pipeline-connector hidden md:block"></div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="pipeline-step z-10">
+                    <div class="w-14 h-14 mx-auto rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-2xl mb-4 shadow-md border-4 border-white dark:border-dark-800"><i class="fas fa-wave-square"></i></div>
+                    <h5 class="font-bold text-base mb-1">2. Processing</h5>
+                    <p class="text-[11px] text-gray-500 leading-relaxed">Calculate Momentum, Volatility & Correlation.</p>
+                    <div class="pipeline-connector hidden md:block"></div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="pipeline-step z-10">
+                    <div class="w-14 h-14 mx-auto rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-2xl mb-4 shadow-md border-4 border-white dark:border-dark-800"><i class="fas fa-chess-king"></i></div>
+                    <h5 class="font-bold text-base mb-1">3. Strategy</h5>
+                    <p class="text-[11px] text-gray-500 leading-relaxed">Apply Algorithm (Rank, Risk Parity) -> Target Weight.</p>
+                    <div class="pipeline-connector hidden md:block"></div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="pipeline-step z-10">
+                    <div class="w-14 h-14 mx-auto rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-2xl mb-4 shadow-md border-4 border-white dark:border-dark-800"><i class="fas fa-money-bill-transfer"></i></div>
+                    <h5 class="font-bold text-base mb-1">4. Execution</h5>
+                    <p class="text-[11px] text-gray-500 leading-relaxed">Rebalance, Calc Turnover, Apply Fee & Slippage.</p>
+                    <div class="pipeline-connector hidden md:block"></div>
+                </div>
+
+                <!-- Step 5 -->
+                <div class="pipeline-step z-10">
+                    <div class="w-14 h-14 mx-auto rounded-full bg-green-100 text-green-600 flex items-center justify-center text-2xl mb-4 shadow-md border-4 border-white dark:border-dark-800"><i class="fas fa-chart-line"></i></div>
+                    <h5 class="font-bold text-base mb-1">5. Analytics</h5>
+                    <p class="text-[11px] text-gray-500 leading-relaxed">Compute CAGR, Sharpe, Drawdown & Visuals.</p>
+                </div>
+            </div>
+
+            <div class="text-center mb-12 border-t dark:border-dark-700 pt-12">
+                <h2 class="text-4xl font-black mb-4 tracking-tighter flex justify-center items-center gap-3">
+                    <span class="bg-gray-100 dark:bg-dark-700 text-gray-600 dark:text-gray-300 w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-lg"><i class="fas fa-book-open"></i></span>
+                    Strategy Logic Bible
+                </h2>
+                <p class="text-gray-500 text-lg">Detailed visual guide to each allocation algorithm.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Strategy Cards (Existing Good Design) -->
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-lg"><i class="fas fa-balance-scale"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Simple</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">1. Equal Weight (1/N)</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="flex justify-center gap-2 text-xs font-mono">
+                            <span class="bg-blue-500 text-white px-2 py-1 rounded">A: 25%</span>
+                            <span class="bg-blue-500 text-white px-2 py-1 rounded">B: 25%</span>
+                            <span class="bg-blue-500 text-white px-2 py-1 rounded">C: 25%</span>
+                            <span class="bg-blue-500 text-white px-2 py-1 rounded">D: 25%</span>
+                        </div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Divides capital equally among all N assets. Rebalances to restore equality.</p>
+                </div>
+
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-yellow-100 text-yellow-600 flex items-center justify-center text-lg"><i class="fas fa-list-ol"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Momentum</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">2. Rank All (Score)</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="text-[10px] font-mono text-gray-400 mb-1">Score = (N - Rank + 1)</div>
+                        <div class="flex justify-center items-end gap-1 h-8">
+                            <div class="w-4 bg-yellow-500 h-full rounded-t" title="Rank 1"></div>
+                            <div class="w-4 bg-yellow-400 h-3/4 rounded-t" title="Rank 2"></div>
+                            <div class="w-4 bg-yellow-300 h-2/4 rounded-t" title="Rank 3"></div>
+                            <div class="w-4 bg-yellow-200 h-1/4 rounded-t" title="Rank 4"></div>
+                        </div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Weights decay linearly based on performance rank. Winner gets most.</p>
+                </div>
+
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-lg"><i class="fas fa-trophy"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Momentum</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">3. Top 3 Leader</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="flex justify-center gap-1 text-[10px]">
+                            <span class="text-green-500 font-bold">WINNER</span> -> <span class="bg-green-500 text-white px-1 rounded">33%</span>
+                        </div>
+                        <div class="text-[9px] text-gray-400 mt-1">Losers -> 0%</div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Selects only the top 3 performers. Allocates equally (33% each).</p>
+                </div>
+
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-lg"><i class="fas fa-medal"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Aggressive</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">4. Top 3 Ranked</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="flex justify-between text-[9px] font-mono">
+                            <span>#1: 50%</span>
+                            <span>#2: 33%</span>
+                            <span>#3: 17%</span>
+                        </div>
+                        <div class="w-full h-1 bg-gray-200 mt-1 rounded overflow-hidden flex">
+                            <div class="bg-green-600 w-1/2"></div>
+                            <div class="bg-green-500 w-1/3"></div>
+                            <div class="bg-green-400 w-1/6"></div>
+                        </div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Top 3 assets only. Weighted by rank (Sum of digits 1+2+3=6).</p>
+                </div>
+
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-lg"><i class="fas fa-filter"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Filter</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">5. Top 50% Selection</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="text-indigo-500 font-bold text-xs">Upper Half Only</div>
+                        <div class="text-[9px] text-gray-400">If 10 Assets -> Pick Top 5 -> 20% Each</div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Cuts the universe in half based on performance. Equal weight for winners.</p>
+                </div>
+
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-lg"><i class="fas fa-arrow-trend-up"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Trend</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">6. Absolute Momentum</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="flex items-center justify-center gap-2 text-xs">
+                            <span class="text-green-500"><i class="fas fa-arrow-up"></i> Invest</span>
+                            <span class="text-gray-300">|</span>
+                            <span class="text-red-500"><i class="fas fa-arrow-down"></i> Cash</span>
+                        </div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Only invest if Return > 0 (Positive Trend). Otherwise, hold Cash.</p>
+                </div>
+
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-lg"><i class="fas fa-shuffle"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Hybrid</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">7. Dual Momentum</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="text-[9px] font-bold">1. Relative: Top 3</div>
+                        <div class="text-[9px] font-bold text-purple-500">+</div>
+                        <div class="text-[9px] font-bold">2. Absolute: Trend > 0</div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Must be a Top Performer AND in an Uptrend to qualify.</p>
+                </div>
+
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-lg"><i class="fas fa-shield-halved"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Defensive</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">8. Inverse Volatility</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="mono text-xs">Weight $\propto$ 1 / Volatility</div>
+                        <div class="text-[9px] text-gray-400 mt-1">Low Risk = High Allocation</div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Risk Parity approach. Minimizes portfolio variance.</p>
+                </div>
+
+                <div class="formula-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="w-10 h-10 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-lg"><i class="fas fa-brain"></i></div>
+                        <span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded">Smart</span>
+                    </div>
+                    <h4 class="font-bold text-md mb-2">9. Adaptive Aggressive</h4>
+                    <div class="bg-white dark:bg-black/20 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-center mb-3">
+                        <div class="text-[9px] text-brand-600 font-bold mb-1">Filter: Positive Trend</div>
+                        <div class="text-[9px] border-t border-gray-200 pt-1">Weight: Inverse Volatility</div>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Combines Momentum (Growth) with Risk Parity (Safety).</p>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ================= LOADER ================= -->
+<div id="loader" class="fixed inset-0 bg-white/95 dark:bg-dark-900/95 z-[100] hidden flex flex-col items-center justify-center backdrop-blur-md">
+    <div class="w-16 h-16 border-4 border-stock-500 border-t-transparent rounded-full animate-spin"></div>
+    <p class="mt-6 font-bold mono text-sm tracking-[0.3em] animate-pulse uppercase" id="loader-text">Fetching Market Data...</p>
+</div>
+
+<script>
+/* =========================================================
+   QUANT ENGINE CORE V45.1 (ETF + CRYPTO + PROXY REAL DATA)
+========================================================= */
+
+// Default Universes
+const CRYPTO_UNIVERSE = ["BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "DOT", "AVAX", "LINK"];
+const ETF_UNIVERSE = ["SPY", "QQQ", "IWM", "EFA", "EEM", "GLD", "TLT", "VNQ"];
+
+const STRAT_NAMES = {
+    Equal: "1. Equal Weight (1/N)",
+    Rank: "2. Rank All (Momentum)",
+    Top3: "3. Top 3 Leader (Equal)",
+    Top3Rank: "4. Top 3 Leader (Ranked)",
+    Top50: "5. Top 50% Selection",
+    AbsMom: "6. Absolute Mom (Trend)",
+    DualMom: "7. Dual Momentum",
+    InvVol: "8. Inverse Volatility",
+    AAA: "9. Adaptive Aggressive"
+};
+
+class QuantEngine {
+  constructor(){
+    this.universe = [...ETF_UNIVERSE]; // Default to ETF
+    this.marketMode = "ETF"; // ETF or CRYPTO
+    this.allPrices = {}; 
+    this.dates = [];
+    this.results = [];
+    this.benchStats = { cagr: 0, sharpe: 0, mdd: 0, sortino: 0, calmar: 0, winrate: 0 };
+  }
+
+  setMarketMode(mode){
+      this.marketMode = mode;
+      if(mode === "ETF") {
+          this.universe = [...ETF_UNIVERSE];
+          document.getElementById('cfg-bench').value = 'SPY';
+      } else {
+          this.universe = [...CRYPTO_UNIVERSE];
+          document.getElementById('cfg-bench').value = 'BTC';
+      }
+      UI.renderAssets();
+      UI.renderQuickAddOptions();
+  }
+
+  // --- FETCH REAL DATA (ROUTING) ---
+  async fetchAssetData(symbol){
+    if(this.marketMode === "CRYPTO") return this.fetchBinanceData(symbol);
+    return this.fetchYahooData(symbol);
+  }
+
+  // 1. BINANCE API (CRYPTO)
+  async fetchBinanceData(symbol){
+    try {
+        const pair = `${symbol.toUpperCase()}USDT`;
+        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1d&limit=1000`);
+        if(!response.ok) throw new Error(`Fetch failed for ${symbol}`);
+        const data = await response.json();
+        return data.map(d => ({
+            date: new Date(d[0]).toISOString().slice(0, 10),
+            price: parseFloat(d[4]) // Index 4 is Close Price
+        }));
+    } catch(e) {
+        console.warn(`Binance fetch failed for ${symbol}, falling back to mock.`);
+        return this.generateMockFallback(symbol);
+    }
+  }
+
+  // 2. YAHOO FINANCE API VIA PROXY (STOCKS/ETF)
+  async fetchYahooData(symbol){
+      try {
+          // Using AllOrigins Proxy to bypass CORS on Yahoo Query 1
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}?interval=1d&range=5y`;
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`;
+          
+          const response = await fetch(proxyUrl);
+          if(!response.ok) throw new Error(`Fetch failed for ${symbol}`);
+          
+          const data = await response.json();
+          const result = data.chart.result[0];
+          
+          if(!result || !result.timestamp) throw new Error(`No data for ${symbol}`);
+          
+          const timestamps = result.timestamp;
+          const prices = result.indicators.quote[0].close;
+          
+          const history = [];
+          for(let i=0; i<timestamps.length; i++){
+              if(prices[i] !== null){
+                  const d = new Date(timestamps[i] * 1000).toISOString().slice(0, 10);
+                  history.push({ date: d, price: prices[i] });
+              }
+          }
+          return history;
+      } catch(e) {
+          console.warn(`Yahoo fetch failed for ${symbol}, falling back to mock.`);
+          return this.generateMockFallback(symbol);
+      }
+  }
+
+  generateMockFallback(symbol) {
+      const days = 1000; const history = []; let price = 100;
+      const start = new Date(); start.setDate(start.getDate() - days);
+      for(let i=0; i<days; i++){
+          price *= (1 + (Math.random()-0.5)*0.03); 
+          const d = new Date(start); d.setDate(d.getDate() + i);
+          history.push({ date: d.toISOString().slice(0, 10), price });
+      }
+      return history;
+  }
+
+  async runBatch(){
+    UI.loading(true, this.marketMode === "CRYPTO" ? "FETCHING BINANCE..." : "FETCHING YAHOO FINANCE...");
+    const cfg = UI.getParams();
+    const allTickers = [...new Set([...this.universe, cfg.bench])];
+    
+    const raw = await Promise.all(allTickers.map(s => this.fetchAssetData(s)));
+    
+    const dateSet = new Set(); 
+    raw.forEach(r => r.forEach(x => dateSet.add(x.date)));
+    this.dates = [...dateSet].sort();
+    
+    this.allPrices = {};
+    allTickers.forEach((s, idx) => {
+        const lookup = {}; raw[idx].forEach(h => lookup[h.date] = h.price);
+        let last = raw[idx][0]?.price || 100;
+        this.allPrices[s] = this.dates.map(d => { 
+            if(lookup[d]) last = lookup[d]; 
+            return last; 
+        });
+    });
+
+    let startIdx = this.dates.findIndex(d => d >= cfg.start);
+    let endIdx = this.dates.findIndex(d => d > cfg.end);
+    if (startIdx === -1) startIdx = 0;
+    if (endIdx === -1) endIdx = this.dates.length;
+    
+    const sliceEnd = endIdx;
+    
+    if(sliceEnd <= startIdx + 30) { 
+        alert(`Insufficient data in selected range.`); 
+        UI.loading(false); return; 
+    }
+
+    const returns = {}; this.universe.forEach(s => { 
+        const p = this.allPrices[s]; returns[s] = [0]; 
+        for(let i=1; i<p.length; i++) returns[s].push(p[i]/p[i-1]-1); 
+    });
+
+    this.results = [];
+    const dailyMgmtFee = (cfg.mgmtFee / 100) / 365;
+
+    // --- FULL GRID CALCULATION ---
+    for(const stratKey of (cfg.strategy === "ALL" ? Object.keys(STRAT_NAMES) : [cfg.strategy])){
+      for(const lb of cfg.lookbacks){
+        for(const rb of cfg.rebals){
+          
+          let cash = cfg.initial * (1 - cfg.frontEndFee / 100); // Initial Capital
+          let shares = {}; this.universe.forEach(k => shares[k] = 0);
+          let curve = [], logs = [], totalTO = 0, rebCount = 0;
+          
+          // Initial Buy
+          {
+             const t0 = startIdx;
+             let initWeights = {};
+             if(lb > 30) {
+                 const sigs0 = {}, vols0 = {};
+                 this.universe.forEach(k => { sigs0[k] = 0; vols0[k] = 0.01; });
+                 initWeights = this.getWeights("Equal", sigs0, vols0);
+             } else {
+                 const sigs = {}, vols = {};
+                 this.universe.forEach(k => {
+                    const pNow = this.allPrices[k][t0];
+                    const pastIdx = Math.max(0, t0-lb);
+                    const pPast = this.allPrices[k][pastIdx];
+                    sigs[k] = pNow / pPast - 1;
+                    const volSlice = returns[k].slice(Math.max(0, t0-30), t0+1);
+                    vols[k] = math.std(volSlice) || 0.01;
+                 });
+                 initWeights = this.getWeights(stratKey, sigs, vols);
+             }
+             
+             this.universe.forEach(k => {
+                 if(initWeights[k] > 0) {
+                     const amt = cash * initWeights[k];
+                     const netAmt = amt * (1 - cfg.fee/100);
+                     shares[k] = netAmt / this.allPrices[k][t0];
+                 }
+             });
+             cash = 0;
+          }
+
+          for(let t = startIdx; t < sliceEnd; t++){
+            let equityValue = 0;
+            this.universe.forEach(k => equityValue += shares[k] * this.allPrices[k][t]);
+            let nav = cash + equityValue;
+
+            const feeVal = nav * dailyMgmtFee;
+            nav -= feeVal;
+            const factor = 1 - dailyMgmtFee;
+            this.universe.forEach(k => shares[k] *= factor);
+            
+            if((t - startIdx) > 0 && (t - startIdx) % rb === 0){
+                const sigs = {}, vols = {};
+                this.universe.forEach(k => {
+                    const pNow = this.allPrices[k][t];
+                    const pastIdx = Math.max(0, t-lb);
+                    const pPast = this.allPrices[k][pastIdx];
+                    sigs[k] = pNow / pPast - 1;
+                    const volSlice = returns[k].slice(Math.max(0, t-30), t+1);
+                    vols[k] = math.std(volSlice) || 0.01; 
+                });
+                const targetWeights = this.getWeights(stratKey, sigs, vols);
+
+                // --- BRANCHING LOGIC: LUMP SUM vs DCA ---
+                if (cfg.dca > 0) {
+                    // === SMART DCA MODE (NO SELL) ===
+                    let inflow = cfg.dca;
+                    let currentVal = {}; let currentTotal = 0;
+                    this.universe.forEach(k => { currentVal[k] = shares[k] * this.allPrices[k][t]; currentTotal += currentVal[k]; });
+                    
+                    let deficits = {}; let totalDeficit = 0;
+                    this.universe.forEach(k => {
+                        let ideal = (currentTotal + inflow) * targetWeights[k];
+                        let diff = ideal - currentVal[k];
+                        if (diff > 0) { deficits[k] = diff; totalDeficit += diff; } else { deficits[k] = 0; }
+                    });
+                    
+                    let buyAmounts = {};
+                    let allocationPcts = {}; // For logs (100% of Injection)
+                    
+                    if (totalDeficit > 0) {
+                        this.universe.forEach(k => {
+                            let share = deficits[k] / totalDeficit;
+                            let amount = inflow * share; 
+                            buyAmounts[k] = amount;
+                            allocationPcts[k] = (amount / inflow) * 100;
+                        });
+                    } else {
+                        this.universe.forEach(k => {
+                            buyAmounts[k] = inflow * targetWeights[k];
+                            allocationPcts[k] = targetWeights[k] * 100;
+                        });
+                    }
+                    
+                    this.universe.forEach(k => {
+                        if(buyAmounts[k] > 0.01){
+                             let cost = buyAmounts[k] * (cfg.fee / 100);
+                             let netBuy = buyAmounts[k] - cost;
+                             shares[k] += netBuy / this.allPrices[k][t];
+                        }
+                    });
+                    
+                    rebCount++;
+                    logs.push({ 
+                        date: this.dates[t], type: 'DCA', inflow: inflow, 
+                        allocation: allocationPcts, nav: currentTotal + inflow 
+                    });
+
+                } else {
+                    // === LUMP SUM REBALANCE MODE (SELL/BUY) ===
+                    let currentVal = {}; this.universe.forEach(k => currentVal[k] = shares[k] * this.allPrices[k][t]);
+                    
+                    // Execution
+                    let newShares = {}, diffPct = {};
+                    let realTO = 0;
+                    let totalNav = nav; // NAV before trading costs logic simplification
+                    
+                    // First pass: Calc Target Value
+                    this.universe.forEach(k => {
+                        const targetVal = totalNav * targetWeights[k];
+                        const diff = targetVal - currentVal[k];
+                        diffPct[k] = (diff / totalNav) * 100; // % of Port
+                        realTO += Math.abs(diff);
+                    });
+                    
+                    // Apply cost estimate
+                    let estCost = realTO * (cfg.fee/100);
+                    let netNav = totalNav - estCost;
+
+                    this.universe.forEach(k => {
+                        const targetVal = netNav * targetWeights[k];
+                        newShares[k] = targetVal / this.allPrices[k][t];
+                    });
+
+                    if(realTO > 1) { 
+                        totalTO += realTO; rebCount++; 
+                        logs.push({ date: this.dates[t], type: 'REBAL', diff: diffPct, nav: netNav }); 
+                        shares = newShares;
+                        cash = 0; 
+                    }
+                }
+            }
+            
+            let finalDailyEq = cash;
+            this.universe.forEach(k => finalDailyEq += shares[k] * this.allPrices[k][t]);
+            curve.push(finalDailyEq);
+          }
+          
+          this.results.push({ 
+            strat: stratKey, stratFull: STRAT_NAMES[stratKey], lb, rb, curve, logs, 
+            dates: this.dates.slice(startIdx, sliceEnd), 
+            avgTO: (rebCount ? (totalTO/rebCount)/curve[0]*100 : 0).toFixed(1),
+            ...this.calcStats(curve, cfg.rf) 
+          });
+        }
+      }
+    }
+    
+    // Bench Stats
+    const bPriceRaw = this.allPrices[cfg.bench];
+    if (bPriceRaw) {
+        const bPriceSliced = bPriceRaw.slice(startIdx, sliceEnd);
+        const startCap = cfg.initial;
+        const bNorm = bPriceSliced.map(v => (v / bPriceSliced[0]) * startCap);
+        this.benchStats = this.calcStats(bNorm, cfg.rf);
+    } else {
+        this.benchStats = { cagr: 0, sharpe: 0, mdd: 0, sortino: 0, calmar: 0, winrate: 0 };
+    }
+    
+    this.results.sort((a,b) => b.sharpe - a.sharpe);
+    
+    UI.currentPage = 1;
+    UI.renderBatchTable();
+    UI.selectResult(0);
+    
+    // Fix Surface Render Delay
+    setTimeout(() => UI.initSurfaceControls(), 500);
+    
+    UI.loading(false);
+  }
+
+  getWeights(type, sig, vol){
+    const keys = this.universe;
+    let items = keys.map(k => ({k, val: sig[k], vol: vol[k]})).filter(x => !isNaN(x.val));
+    items.sort((a,b) => b.val - a.val);
+    let w = {}; keys.forEach(k => w[k] = 0);
+    if(type === "Equal") items.forEach(x => w[x.k] = 1/items.length);
+    else if(type === "Rank") { const N = items.length, S = (N*(N+1))/2; items.forEach((x,i) => w[x.k] = (N-i)/S); }
+    else if(type === "Top3") { const K = Math.min(3, items.length); items.slice(0, K).forEach(x => w[x.k] = 1/K); }
+    else if(type === "Top3Rank") { const K = Math.min(3, items.length), S = K*(K+1)/2; items.slice(0, K).forEach((x,i) => w[x.k] = (K-i)/S); }
+    else if(type === "Top50") { const K = Math.ceil(items.length/2); items.slice(0, K).forEach(x => w[x.k] = 1/K); }
+    else if(type === "AbsMom") { const act = items.filter(x => x.val > 0); if(act.length) act.forEach(x => w[x.k] = 1/act.length); }
+    else if(type === "DualMom") { const act = items.filter(x => x.val > 0); const K = Math.min(act.length, 3); if(act.length) act.slice(0, K).forEach(x => w[x.k] = 1/K); }
+    else if(type === "InvVol") { let S = 0; items.forEach(x => S += 1/(x.vol || 0.01)); items.forEach(x => w[x.k] = (1/(x.vol || 0.01))/S); }
+    else if(type === "AAA") { const pos = items.filter(x => x.val > 0); let target = pos.length ? pos : items.slice(0, 3); let S = 0; target.forEach(x => S += 1/(x.vol || 0.01)); target.forEach(x => w[x.k] = (1/(x.vol || 0.01))/S); }
+    return w;
+  }
+
+  calcStats(curve, rfPct = 2.0){
+    if(!curve.length) return {cagr:0, sharpe:0, mdd:0, sortino:0, calmar:0, winrate:0};
+    
+    const rets = []; 
+    let posDays = 0;
+    for(let i=1; i<curve.length; i++) { 
+        const r = curve[i]/curve[i-1]-1; 
+        rets.push(r); 
+        if(r > 0) posDays++; 
+    }
+    
+    const N = rets.length;
+    const rfDaily = (rfPct/100)/365; 
+    const excessRets = rets.map(r => r - rfDaily);
+    
+    const totalRet = curve[curve.length-1]/curve[0];
+    const years = Math.max(curve.length / 365, 0.1); 
+    const cagr = (Math.pow(totalRet, 1/years) - 1) * 100;
+    
+    const stdDev = math.std(rets); 
+    const annVol = stdDev * Math.sqrt(365);
+    const avgExcess = math.mean(excessRets);
+    const sharpe = annVol === 0 ? 0 : (avgExcess * 365) / annVol;
+    
+    let pk = -Infinity, mdd = 0; 
+    curve.forEach(v => { 
+        if(v > pk) pk = v; 
+        const dd = (v - pk)/pk; 
+        if(dd < mdd) mdd = dd; 
+    });
+    
+    const downsideSqSum = excessRets.reduce((acc, r) => acc + (r < 0 ? r**2 : 0), 0);
+    const downsideDevDaily = Math.sqrt(downsideSqSum / N); 
+    const downsideDevAnn = downsideDevDaily * Math.sqrt(365);
+    const sortino = downsideDevAnn === 0 ? 0 : (avgExcess * 365) / downsideDevAnn;
+    
+    const absMDD = Math.abs(mdd);
+    const calmar = absMDD === 0 ? 0 : cagr / (absMDD * 100);
+    
+    return { 
+        cagr: cagr.toFixed(2), 
+        sharpe: sharpe.toFixed(2), 
+        mdd: (mdd * 100).toFixed(2), 
+        sortino: sortino.toFixed(2), 
+        calmar: calmar.toFixed(2), 
+        winrate: ((posDays / N) * 100).toFixed(1) 
+    };
+  }
+}
+
+/* =========================================================
+   UI CONTROLLER
+========================================================= */
+
+const UI = {
+    chartEq: null, chartDD: null, isLog: false, selectedIdx: 0,
+    sortCol: 'sharpe', sortDir: 'desc',
+    surfaceTimer: null, surfaceFrame: 100,
+    currentPage: 1, rowsPerPage: 10, filteredData: [],
+
+    init(){
+        this.renderQuickAddOptions();
+        this.renderAssets(); 
+        this.switchTab('dashboard');
+        this.initTooltips();
+        
+        // Auto-set Date Inputs (5 Years for ETF)
+        const end = new Date(); 
+        const start = new Date(); 
+        start.setFullYear(end.getFullYear() - 5); 
+        
+        document.getElementById('cfg-start').value = start.toISOString().slice(0,10);
+        document.getElementById('cfg-end').value = end.toISOString().slice(0,10);
+    },
+
+    changeMarketMode(mode){
+        Engine.setMarketMode(mode);
+        const badge = document.getElementById('market-source-badge');
+        if(mode === "ETF"){
+            badge.innerText = "YAHOO FINANCE (REAL)";
+            badge.className = "text-[9px] font-bold text-stock-500 bg-stock-500/10 px-1 rounded animate-pulse";
+        } else {
+            badge.innerText = "BINANCE LIVE API";
+            badge.className = "text-[9px] font-bold text-acc-green bg-acc-green/10 px-1 rounded animate-pulse";
+        }
+    },
+
+    renderQuickAddOptions(){
+        const sel = document.getElementById('quick-add-select');
+        if(Engine.marketMode === "ETF"){
+            sel.innerHTML = `
+            <option value="">+ Quick Add (ETF)</option>
+            <optgroup label="US Equity">
+                <option value="SPY">SPY (S&P 500)</option>
+                <option value="QQQ">QQQ (Nasdaq 100)</option>
+                <option value="VTI">VTI (Total US)</option>
+                <option value="IWM">IWM (Russell 2000)</option>
+            </optgroup>
+            <optgroup label="Global & Emerging">
+                <option value="VT">VT (Total World)</option>
+                <option value="EFA">EFA (Developed)</option>
+                <option value="EEM">EEM (Emerging)</option>
+            </optgroup>
+            <optgroup label="Bonds & Alt">
+                <option value="TLT">TLT (20y Treasury)</option>
+                <option value="IEF">IEF (7-10y Treasury)</option>
+                <option value="GLD">GLD (Gold)</option>
+                <option value="VNQ">VNQ (Real Estate)</option>
+            </optgroup>`;
+        } else {
+            sel.innerHTML = `
+            <option value="">+ Quick Add (Crypto)</option>
+            <optgroup label="Blue Chips">
+                <option value="BTC">BTC (Bitcoin)</option>
+                <option value="ETH">ETH (Ethereum)</option>
+                <option value="BNB">BNB (Binance)</option>
+            </optgroup>
+            <optgroup label="Layer 1">
+                <option value="SOL">SOL (Solana)</option>
+                <option value="ADA">ADA (Cardano)</option>
+                <option value="AVAX">AVAX (Avalanche)</option>
+                <option value="DOT">DOT (Polkadot)</option>
+            </optgroup>
+            <optgroup label="DeFi/Meme/Others">
+                <option value="LINK">LINK (Chainlink)</option>
+                <option value="UNI">UNI (Uniswap)</option>
+                <option value="DOGE">DOGE (Dogecoin)</option>
+                <option value="XRP">XRP (Ripple)</option>
+            </optgroup>`;
+        }
+    },
+    
+    initTooltips() {
+        const tooltip = document.getElementById('global-tooltip');
+        document.body.addEventListener('mouseover', (e) => {
+            const target = e.target.closest('.has-tooltip');
+            if (!target) return;
+            const source = target.querySelector('.tooltip-source');
+            if (source) {
+                tooltip.innerHTML = source.innerHTML;
+                tooltip.style.visibility = 'visible';
+                tooltip.style.opacity = '1';
+                this.updateTooltipPosition(e, tooltip);
+            }
+        });
+        document.body.addEventListener('mouseout', (e) => {
+            const target = e.target.closest('.has-tooltip');
+            if (target) {
+                tooltip.style.visibility = 'hidden';
+                tooltip.style.opacity = '0';
+            }
+        });
+    },
+    
+    updateTooltipPosition(e, tooltip) {
+        const target = e.target.closest('.has-tooltip');
+        if(!target) return;
+        const rect = target.getBoundingClientRect();
+        let top = rect.top - tooltip.offsetHeight - 10;
+        let left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2);
+        if (top < 10) top = rect.bottom + 10;
+        if (left < 10) left = 10;
+        tooltip.style.top = `${top}px`;
+        tooltip.style.left = `${left}px`;
+    },
+
+    getParams(){
+        const p = {}; ['cfg-strategy', 'cfg-start', 'cfg-end', 'cfg-bench', 'cfg-lookback', 'cfg-rebal', 'cfg-fee', 'cfg-frontend-fee', 'cfg-mgmt-fee', 'cfg-rf', 'cfg-initial', 'cfg-dca'].forEach(id => { const el = document.getElementById(id); p[id.replace('cfg-','')] = el ? el.value : null; });
+        return {
+            ...p, bench: (p.bench || "SPY").toUpperCase().trim(),
+            lookbacks: p.lookback ? p.lookback.split(',').map(v => parseInt(v.trim())) : [30],
+            rebals: p.rebal ? p.rebal.split(',').map(v => parseInt(v.trim())) : [30],
+            fee: parseFloat(p.fee || 0.1), 
+            frontEndFee: parseFloat(p['frontend-fee'] || 0),
+            mgmtFee: parseFloat(p['mgmt-fee'] || 0),
+            rf: parseFloat(p['rf'] || 2.0),
+            initial: parseFloat(p.initial || 1000),
+            dca: parseFloat(p.dca || 0)
+        };
+    },
+
+    switchTab(id){
+        ['dashboard', 'workflow'].forEach(v => {
+            const view = document.getElementById(`view-${v}`); const btn = document.getElementById(`btn-tab-${v}`);
+            if(view) view.classList.add('hidden'); if(btn) btn.className = "px-4 py-1 text-[10px] font-bold rounded text-gray-400 hover:text-stock-500 transition-all";
+        });
+        const tv = document.getElementById(`view-${id}`); const tb = document.getElementById(`btn-tab-${id}`);
+        if(tv) tv.classList.remove('hidden'); if(tb) tb.className = "px-4 py-1 text-[10px] font-bold rounded bg-white dark:bg-dark-900 shadow-sm text-stock-600 transition-all";
+    },
+
+    suggestAsset(s){ if(!s) return; document.getElementById('cfg-add').value = s; this.addAsset(); },
+    addAsset(){ const i = document.getElementById('cfg-add'); if(!i) return; const v = i.value.trim().toUpperCase(); if(v && !Engine.universe.includes(v)){ Engine.universe.push(v); this.renderAssets(); } i.value = ''; },
+    removeAsset(s){ Engine.universe = Engine.universe.filter(u => u !== s); this.renderAssets(); },
+    renderAssets(){ const l = document.getElementById('asset-list'); if(l) l.innerHTML = Engine.universe.map(a => `<span class="bg-white dark:bg-dark-800 border dark:border-dark-700 px-1.5 py-0.5 rounded text-[9px] mono font-bold flex items-center gap-1 shadow-sm transition-transform hover:scale-105">${a} <button onclick="UI.removeAsset('${a}')" class="text-red-500 hover:text-red-700 font-bold ml-1">×</button></span>`).join(''); },
+    loading(s, t="..."){ const elT = document.getElementById('loader-text'); const elL = document.getElementById('loader'); if(elT) elT.innerText = t; if(elL) s ? elL.classList.remove('hidden') : elL.classList.add('hidden'); },
+    toggleTheme(){ document.body.classList.toggle('dark'); if(Engine.results.length) this.selectResult(this.selectedIdx); },
+    toggleLog(){ this.isLog = !this.isLog; if(Engine.results[this.selectedIdx]) this.renderEquity(Engine.results[this.selectedIdx]); },
+
+    sortBatch(col){
+        if(this.sortCol === col) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+        else { this.sortCol = col; this.sortDir = 'desc'; }
+        this.renderBatchTable();
+    },
+
+    applyBatchFilters(){ this.currentPage = 1; this.renderBatchTable(); },
+    clearFilters(){ ['f-strat', 'f-lb', 'f-rb', 'f-cagr', 'f-sharpe', 'f-mdd', 'f-sortino', 'f-calmar'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; }); this.applyBatchFilters(); },
+
+    renderBatchTable(){
+        const b = document.getElementById('batch-table-body'); 
+        if(!b || !Engine.results.length) return;
+        
+        // Safety checks
+        const elStrat = document.getElementById('f-strat');
+        const elLb = document.getElementById('f-lb');
+        const elRb = document.getElementById('f-rb');
+        const elCagr = document.getElementById('f-cagr');
+        const elSharpe = document.getElementById('f-sharpe');
+        const elSortino = document.getElementById('f-sortino');
+        const elCalmar = document.getElementById('f-calmar');
+        const elMdd = document.getElementById('f-mdd');
+
+        const fs = elStrat ? elStrat.value.toLowerCase() : '';
+        const flb = elLb ? (parseFloat(elLb.value) || -Infinity) : -Infinity;
+        const frb = elRb ? (parseFloat(elRb.value) || -Infinity) : -Infinity;
+        const fcagr = elCagr ? (parseFloat(elCagr.value) || -Infinity) : -Infinity;
+        const fsharpe = elSharpe ? (parseFloat(elSharpe.value) || -Infinity) : -Infinity;
+        const fsortino = elSortino ? (parseFloat(elSortino.value) || -Infinity) : -Infinity;
+        const fcalmar = elCalmar ? (parseFloat(elCalmar.value) || -Infinity) : -Infinity;
+        const fmdd = elMdd ? (parseFloat(elMdd.value) || Infinity) : Infinity;
+
+        this.filteredData = Engine.results.filter(r => {
+            return r.stratFull.toLowerCase().includes(fs) && r.lb >= flb && r.rb >= frb &&
+                   parseFloat(r.cagr) >= fcagr && parseFloat(r.sharpe) >= fsharpe &&
+                   Math.abs(parseFloat(r.mdd)) <= Math.abs(fmdd) &&
+                   parseFloat(r.sortino) >= fsortino && parseFloat(r.calmar) >= fcalmar;
+        });
+
+        this.filteredData.sort((a,b) => {
+            let v1 = a[this.sortCol], v2 = b[this.sortCol];
+            if(['cagr', 'sharpe', 'mdd', 'sortino', 'calmar', 'lb', 'rb'].includes(this.sortCol)){ v1 = parseFloat(v1); v2 = parseFloat(v2); }
+            if(this.sortDir === 'asc') return v1 > v2 ? 1 : -1;
+            return v1 < v2 ? 1 : -1;
+        });
+
+        const start = (this.currentPage - 1) * this.rowsPerPage;
+        const end = start + this.rowsPerPage;
+        const paginatedData = this.filteredData.slice(start, end);
+
+        document.getElementById('pagination-info').innerText = `${Math.min(start+1, this.filteredData.length)}-${Math.min(end, this.filteredData.length)} of ${this.filteredData.length}`;
+        document.getElementById('btn-prev').disabled = this.currentPage === 1;
+        document.getElementById('btn-next').disabled = end >= this.filteredData.length;
+
+        if(!paginatedData.length){ b.innerHTML = '<tr><td colspan="7" class="py-20 text-center text-gray-400 italic">No matches found.</td></tr>'; return; }
+        b.innerHTML = paginatedData.map((r) => {
+            const origIdx = Engine.results.findIndex(orig => orig === r);
+            return `<tr onclick="UI.selectResult(${origIdx})" class="cursor-pointer hover:bg-stock-500/10 transition-colors ${origIdx===this.selectedIdx?'bg-stock-500/15 font-bold border-l-4 border-l-stock-500':''}">
+                <td class="text-left p-3 text-dark-900 dark:text-white">${r.stratFull}</td><td class="p-3">${r.lb}</td><td class="p-3">${r.rb}</td>
+                <td class="p-3 text-acc-green">${r.cagr}%</td><td class="p-3 text-stock-600 font-bold">${r.sharpe}</td>
+                <td class="p-3 text-blue-500">${r.sortino}</td><td class="p-3 text-purple-500">${r.calmar}</td><td class="p-3 text-acc-red">${r.mdd}%</td></tr>`;
+        }).join('');
+    },
+
+    nextPage() { if((this.currentPage * this.rowsPerPage) < this.filteredData.length) { this.currentPage++; this.renderBatchTable(); } },
+    prevPage() { if(this.currentPage > 1) { this.currentPage--; this.renderBatchTable(); } },
+
+    selectResult(idx){
+        this.selectedIdx = idx; const res = Engine.results[idx]; if(!res) return;
+        const metrics = { 'kpi-cagr': res.cagr+"%", 'kpi-sharpe': res.sharpe, 'kpi-mdd': res.mdd+"%", 'kpi-sortino': res.sortino, 'kpi-calmar': res.calmar, 'kpi-winrate': res.winrate+"%" };
+        Object.entries(metrics).forEach(([id, v]) => { const el = document.getElementById(id); if(el) el.innerText = v; });
+        const benches = { 'bench-cagr': `Bench: ${Engine.benchStats.cagr}%`, 'bench-sharpe': `Bench: ${Engine.benchStats.sharpe}`, 'bench-mdd': `Bench: ${Engine.benchStats.mdd}%`, 'bench-sortino': `Bench: ${Engine.benchStats.sortino}`, 'bench-calmar': `Bench: ${Engine.benchStats.calmar}`, 'bench-winrate': `Bench: ${Engine.benchStats.winrate}%` };
+        Object.entries(benches).forEach(([id, v]) => { const el = document.getElementById(id); if(el) el.innerText = v; });
+        document.getElementById('chart-subtitle').innerText = `${res.stratFull} (LB:${res.lb}, RB:${res.rb}) vs ${document.getElementById('cfg-bench').value}`;
+        this.renderEquity(res); this.renderLogs(res.logs); this.renderHeatmaps(res);
+        this.renderCorrelation(); this.renderDrawdownChart(res);
+        this.renderBatchTable(); UI.renderSurface(); UI.runMonteCarlo();
+    },
+
+    renderLogs(logs){
+        const b = document.getElementById('log-table'); if(!b) return;
+        
+        b.innerHTML = logs.slice().reverse().map(l => {
+            let html = '';
+            
+            if (l.type === 'DCA') {
+                // DCA LOGIC: Show % allocation of new money (100% total)
+                const dcaItems = Object.entries(l.allocation).filter(([k,v]) => v > 0.1); // v is pct here
+                dcaItems.sort((a,b) => b[1] - a[1]);
+                
+                const badges = dcaItems.map(([k,v]) => 
+                    `<span class="inline-block px-1.5 py-0.5 rounded border border-stock-500/30 bg-stock-500/10 text-stock-600 text-[9px] font-bold mr-1 mb-1">Buy ${k}: ${v.toFixed(1)}%</span>`
+                ).join('');
+                
+                html = `
+                <tr>
+                    <td class="p-3 text-gray-400 font-bold border-b dark:border-dark-700 align-top">${l.date}</td>
+                    <td class="p-3 font-bold text-acc-green border-b dark:border-dark-700 align-top">Injection: +$${l.inflow.toFixed(0)}</td>
+                    <td class="p-3 border-b dark:border-dark-700 align-top">
+                        <div class="mb-1 text-[9px] text-gray-500 font-bold uppercase">Smart Allocation (100% of Injection)</div>
+                        <div class="flex flex-wrap">${badges}</div>
+                    </td>
+                    <td class="p-3 border-b dark:border-dark-700 align-top text-gray-500 text-[9px] font-mono">NAV: $${l.nav.toFixed(0)}</td>
+                </tr>`;
+                
+            } else {
+                // LUMP SUM REBAL LOGIC: Show % of Portfolio
+                const diffs = Object.entries(l.diff).filter(([k,v]) => Math.abs(v) > 0.1); // v is pct of port
+                diffs.sort((a,b) => b[1] - a[1]);
+                
+                const badges = diffs.map(([k,v]) => {
+                    const isBuy = v > 0;
+                    const color = isBuy ? 'text-acc-green bg-acc-green/10 border-acc-green/20' : 'text-acc-red bg-acc-red/10 border-acc-red/20';
+                    const sign = isBuy ? 'Buy' : 'Sell';
+                    return `<span class="inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold mr-1 mb-1 ${color}">${sign} ${k}: ${Math.abs(v).toFixed(2)}%</span>`;
+                }).join('');
+                
+                html = `
+                <tr>
+                    <td class="p-3 text-gray-400 font-bold border-b dark:border-dark-700 align-top">${l.date}</td>
+                    <td class="p-3 font-bold text-blue-500 border-b dark:border-dark-700 align-top">Rebalance</td>
+                    <td class="p-3 border-b dark:border-dark-700 align-top">
+                        <div class="mb-1 text-[9px] text-gray-500 font-bold uppercase">% of Portfolio</div>
+                        <div class="flex flex-wrap">${badges}</div>
+                    </td>
+                    <td class="p-3 border-b dark:border-dark-700 align-top text-gray-500 text-[9px] font-mono">NAV: $${l.nav.toFixed(0)}</td>
+                </tr>`;
+            }
+            return html;
+        }).join('');
+    },
+
+    renderEquity(res){
+        const ctx = document.getElementById('chart-equity').getContext('2d'); if(this.chartEq) this.chartEq.destroy();
+        const cfg = UI.getParams(); 
+        const bAll = Engine.allPrices[cfg.bench]; 
+        
+        // Find indices in the full dates array corresponding to the simulation range
+        const sIdx = Engine.dates.findIndex(d => d === res.dates[0]);
+        
+        // Slice benchmark exactly like the strategy
+        const benchRaw = bAll.slice(sIdx, sIdx + res.curve.length);
+        
+        // Normalize Benchmark line to start exactly where the strategy starts (usually 1000)
+        // This ensures they diverge from the same point visually
+        const startVal = res.curve[0];
+        const bench = benchRaw.map(v => (v / benchRaw[0]) * startVal);
+
+        const grad = ctx.createLinearGradient(0, 0, 0, 400); grad.addColorStop(0, 'rgba(59, 130, 246, 0.2)'); grad.addColorStop(1, 'rgba(59, 130, 246, 0)');
+        this.chartEq = new Chart(ctx, { type: 'line', data: { labels: res.dates, datasets: [{ label: 'Selected Strategy', data: res.curve, borderColor: '#3b82f6', backgroundColor: grad, borderWidth: 2, fill: true, pointRadius: 0, tension: 0.1 }, { label: `Benchmark (${cfg.bench})`, data: bench, borderColor: '#64748b', borderDash: [4,4], borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.1 }] }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { y: { type: this.isLog ? 'logarithmic' : 'linear', grid: { color: document.body.classList.contains('dark') ? '#2B3139' : '#e2e8f0' }, ticks: { color: '#94a3b8' } }, x: { display: false } }, plugins: { legend: { labels: { color: document.body.classList.contains('dark') ? '#EAECEF' : '#1E2329' } }, tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', titleFont: { family: 'JetBrains Mono' }, bodyFont: { family: 'JetBrains Mono' }, padding: 10, cornerRadius: 8, displayColors: true } } } });
+    },
+
+    renderDrawdownChart(res){
+        const ctx = document.getElementById('chart-drawdown').getContext('2d'); if(this.chartDD) this.chartDD.destroy();
+        let pk = 0; const dd = res.curve.map(v => { if(v > pk) pk = v; return (v - pk)/pk * 100; });
+        const grad = ctx.createLinearGradient(0, 0, 0, 140); grad.addColorStop(0, 'rgba(246, 70, 93, 0.1)'); grad.addColorStop(1, 'rgba(246, 70, 93, 0.4)');
+        this.chartDD = new Chart(ctx, { type: 'line', data: { labels: res.dates, datasets: [{ data: dd, borderColor: '#F6465D', backgroundColor: grad, fill: true, pointRadius: 0, borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } }, scales: { y: { max: 0, ticks: { callback: v => v + '%' }, grid: { display: false } }, x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { display: false } } } } });
+    },
+
+    renderCorrelation(){
+        const assets = Engine.universe; const rets = assets.map(s => { const p = Engine.allPrices[s].slice(-90); const r = []; for(let i=1; i<p.length; i++) r.push(p[i]/p[i-1]-1); return r; });
+        const z = assets.map((a1, i) => assets.map((a2, j) => { if(i === j) return 1; const r1 = rets[i], r2 = rets[j], m1 = math.mean(r1), m2 = math.mean(r2); let num = 0, d1 = 0, d2 = 0; for(let k=0; k<r1.length; k++){ num += (r1[k]-m1)*(r2[k]-m2); d1 += (r1[k]-m1)**2; d2 += (r2[k]-m2)**2; } return num / Math.sqrt(d1 * d2); }));
+        if(document.getElementById('viz-correlation')){
+           Plotly.newPlot('viz-correlation', [{ z, x: assets, y: assets, type: 'heatmap', colorscale: 'RdBu', zmin: -1, zmax: 1 }], { margin: { l: 60, r: 10, b: 40, t: 10 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: document.body.classList.contains('dark') ? '#EAECEF' : '#1E2329' } }, { displayModeBar: false });
+        }
+    },
+
+    renderHeatmaps(res){
+        const mons = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const dR = {}, dD = {}; let pk = 0;
+        
+        // Create lookup for Yearly Drawdown Calculation
+        const yearDrawdowns = {}; // To store all daily drawdowns per year
+
+        res.dates.forEach((d, i) => {
+            const y = d.slice(0, 4); const m = parseInt(d.slice(5, 7)) - 1;
+            const val = res.curve[i]; const prev = i > 0 ? res.curve[i-1] : val;
+            
+            if(val > pk) pk = val; 
+            const dd = (val - pk)/pk; // Current daily drawdown
+
+            if(!dR[y]) dR[y] = new Array(12).fill(null); 
+            if(!dD[y]) dD[y] = new Array(12).fill(null);
+            if(!yearDrawdowns[y]) yearDrawdowns[y] = 100; // Init with positive to find min
+
+            // Compounding Return
+            if(dR[y][m] === null) dR[y][m] = 1; 
+            dR[y][m] *= (1 + (val/prev - 1));
+
+            // Max Monthly Drawdown (min value)
+            if(dD[y][m] === null || dd < dD[y][m]) dD[y][m] = dd;
+
+            // Yearly Max Drawdown Logic
+            if(dd < yearDrawdowns[y]) yearDrawdowns[y] = dd;
+        });
+        
+        // --- FIX: SAFETY CHECK FOR HEATMAP CONTAINERS ---
+        const years = Object.keys(dR).sort().reverse();
+        
+        const elHR = document.getElementById('heatmap-return-container');
+        if(elHR){
+            let hR = `<table class="heatmap-table"><thead><tr><th>Year</th>${mons.map(m=>`<th>${m}</th>`).join('')}<th>Total</th></tr></thead><tbody>`;
+            years.forEach(y => { 
+                let yT = 1; 
+                hR += `<tr><td class="font-bold text-gray-400 text-xs">${y}</td>`; 
+                for(let i=0; i<12; i++){ 
+                    const mR = dR[y][i]; 
+                    if(mR === null) { hR += `<td class="bg-gray-100 dark:bg-dark-800">-</td>`; continue; } 
+                    const p = (mR - 1) * 100; 
+                    yT *= mR; 
+                    const bg = p >= 0 ? `rgba(14, 203, 129, ${Math.min(p/8,1)})` : `rgba(246, 70, 93, ${Math.min(Math.abs(p)/8,1)})`; 
+                    hR += `<td style="background:${bg}; color:${Math.abs(p)>4?'#fff':'inherit'}">${p.toFixed(1)}</td>`; 
+                } 
+                hR += `<td class="font-bold text-xs" style="color:${yT>=1?'#0ECB81':'#F6465D'}">${((yT-1)*100).toFixed(1)}%</td></tr>`; 
+            });
+            elHR.innerHTML = hR + `</tbody></table>`;
+        }
+
+        const elHD = document.getElementById('heatmap-drawdown-container');
+        if(elHD){
+            let hD = `<table class="heatmap-table"><thead><tr><th>Year</th>${mons.map(m=>`<th>${m}</th>`).join('')}<th>Max DD</th></tr></thead><tbody>`;
+            years.forEach(y => { 
+                hD += `<tr><td class="font-bold text-gray-400 text-xs">${y}</td>`; 
+                for(let i=0; i<12; i++){ 
+                    const mVal = dD[y][i]; 
+                    if(mVal === null) { hD += `<td class="bg-gray-100 dark:bg-dark-800">-</td>`; continue; } 
+                    const p = mVal * 100; 
+                    const bg = `rgba(246, 70, 93, ${Math.min(Math.abs(p)/15,1)})`; 
+                    hD += `<td style="background:${bg}; color:${Math.abs(p)>8?'#fff':'inherit'}">${p.toFixed(1)}</td>`; 
+                } 
+                // Add Yearly Max Drawdown
+                const yDD = (yearDrawdowns[y] !== 100) ? yearDrawdowns[y] * 100 : 0;
+                hD += `<td class="font-bold text-xs text-acc-red">${yDD.toFixed(1)}%</td></tr>`; 
+            });
+            elHD.innerHTML = hD + `</tbody></table>`;
+        }
+        // ------------------------------------------------
+    },
+
+    // --- SURFACE LOGIC & TIME WARP FIXED ---
+    initSurfaceControls(){
+        this.surfaceFrame = 100;
+        document.getElementById('surface-slider').value = 100;
+        document.getElementById('surface-date-display').innerText = "Full History";
+        this.renderSurface();
+    },
+
+    toggleSurfaceAnim(){
+        if(this.surfaceTimer) { clearInterval(this.surfaceTimer); this.surfaceTimer = null; document.getElementById('btn-play-surface').innerHTML = '<i class="fas fa-play text-[10px]"></i>'; }
+        else {
+            document.getElementById('btn-play-surface').innerHTML = '<i class="fas fa-pause text-[10px]"></i>';
+            if(this.surfaceFrame >= 100) this.surfaceFrame = 0; 
+            this.surfaceTimer = setInterval(() => {
+                this.surfaceFrame += 1; // Slower speed
+                if(this.surfaceFrame > 100) {
+                    this.surfaceFrame = 100;
+                    this.renderSurface();
+                    this.toggleSurfaceAnim(); // Auto Stop at end
+                    return;
+                }
+                document.getElementById('surface-slider').value = this.surfaceFrame;
+                this.updateSurfaceFromSlider(this.surfaceFrame);
+            }, 50); 
+        }
+    },
+
+    updateSurfaceFromSlider(val){
+        this.surfaceFrame = parseInt(val);
+        this.renderSurface();
+    },
+
+    renderSurface(){
+        if(!Engine.results.length) return;
+        const currentStrat = Engine.results[this.selectedIdx].strat;
+        const filtered = Engine.results.filter(r => r.strat === currentStrat);
+        
+        const refResult = filtered[0]; 
+        if(!refResult) return;
+
+        const totalSimDays = refResult.dates.length;
+        const slicePct = Math.max(0.05, this.surfaceFrame / 100); 
+        const sliceIndex = Math.floor(Math.max(20, totalSimDays * slicePct)); // Ensure min 20 days
+        const sliceDate = refResult.dates[sliceIndex-1];
+
+        const lbs = [...new Set(filtered.map(r => r.lb))].sort((a,b)=>a-b);
+        const rbs = [...new Set(filtered.map(r => r.rb))].sort((a,b)=>a-b);
+        
+        const metric = document.getElementById('surface-metric').value; // sharpe, cagr, mdd, vol
+        const sdLayer = parseInt(document.getElementById('surface-sd').value);
+        
+        // Time Warp Slicing Fixed
+        document.getElementById('surface-date-display').innerText = sliceDate ? `Horizon: ${sliceDate}` : 'Full History';
+
+        const z = rbs.map(rb => lbs.map(lb => {
+            const m = filtered.find(r => r.lb === lb && r.rb === rb);
+            if(!m) return null;
+            
+            // Re-calculate metric for partial time if animating, else use full pre-calc
+            let val = 0;
+            const subCurve = m.curve.slice(0, sliceIndex);
+            
+            if(this.surfaceFrame === 100) {
+                if(metric === 'sharpe') val = parseFloat(m.sharpe);
+                if(metric === 'cagr') val = parseFloat(m.cagr);
+                if(metric === 'mdd') val = Math.abs(parseFloat(m.mdd));
+                if(metric === 'vol') val = 0;
+            } else {
+                if(subCurve.length < 50) return 0;
+                if(metric === 'sharpe') {
+                     const rets = []; for(let i=1; i<subCurve.length; i++) rets.push(subCurve[i]/subCurve[i-1]-1);
+                     const vol = math.std(rets) * Math.sqrt(365);
+                     const cagr = Math.pow(subCurve[subCurve.length-1]/subCurve[0], 365/subCurve.length) - 1;
+                     val = vol === 0 ? 0 : (cagr - 0.02) / vol; // Raw Sharpe
+                }
+                if(metric === 'cagr') {
+                    val = (Math.pow(subCurve[subCurve.length-1]/subCurve[0], 365/subCurve.length)-1) * 100; // Raw %
+                }
+                if(metric === 'mdd') {
+                    let pk = -Infinity, mdd = 0; subCurve.forEach(v => { if(v>pk) pk=v; const d=(v-pk)/pk; if(d<mdd) mdd=d; });
+                    val = Math.abs(mdd) * 100; // Raw %
+                }
+            }
+            return val;
+        }));
+
+        const flatZ = z.flat().filter(v => v !== null && !isNaN(v));
+        const mean = math.mean(flatZ);
+        const std = math.std(flatZ);
+
+        const data = [{
+            z: z, x: lbs, y: rbs, type: 'surface', colorscale: 'Viridis',
+            colorbar: { title: metric.toUpperCase(), tickfont: { color: document.body.classList.contains('dark') ? '#EAECEF' : '#1E2329' } }
+        }];
+
+        const midLB = lbs[Math.floor(lbs.length/2)];
+        const midRB = rbs[Math.floor(rbs.length/2)];
+        data.push({ x: [midLB], y: [midRB], z: [mean], mode: 'markers', type: 'scatter3d', marker: { size: 6, color: 'white', line: {color:'black', width:2} }, name: 'Average' });
+
+        if(sdLayer > 0){
+            for(let i=1; i<=sdLayer; i++){
+                const planeUp = rbs.map(() => lbs.map(() => mean + (std * i)));
+                const planeDown = rbs.map(() => lbs.map(() => mean - (std * i)));
+                
+                data.push({ z: planeUp, x: lbs, y: rbs, type: 'surface', showscale: false, opacity: 0.2, colorscale: [[0, 'green'], [1, 'green']], name: `+${i}SD` });
+                data.push({ z: planeDown, x: lbs, y: rbs, type: 'surface', showscale: false, opacity: 0.2, colorscale: [[0, 'red'], [1, 'red']], name: `-${i}SD` });
+            }
+        }
+
+        const isDark = document.body.classList.contains('dark');
+        Plotly.newPlot('viz-surface', data, {
+            margin: { l: 0, r: 0, b: 0, t: 0 }, paper_bgcolor: 'rgba(0,0,0,0)',
+            scene: { xaxis: { title: 'Lookback (D)', color: isDark ? '#848E9C' : '#1E2329' }, yaxis: { title: 'Rebal (D)', color: isDark ? '#848E9C' : '#1E2329' }, zaxis: { title: metric.toUpperCase(), color: isDark ? '#848E9C' : '#1E2329' }, camera: { eye: {x: 1.5, y: 1.5, z: 1.5} } }
+        }, { displayModeBar: false });
+    },
+
+    exportToCSV() {
+        if (!Engine.results.length) return alert("Run a backtest first!");
+        const res = Engine.results[this.selectedIdx];
+        let csv = "Date,PortfolioNAV,DrawdownPct\n";
+        let pk = 0;
+        res.dates.forEach((d, i) => { const nav = res.curve[i].toFixed(2); if(res.curve[i] > pk) pk = res.curve[i]; const dd = ((res.curve[i] - pk) / pk * 100).toFixed(2); csv += `${d},${nav},${dd}\n`; });
+        const blob = new Blob([csv], { type: 'text/csv' }); const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.setAttribute('hidden', ''); a.setAttribute('href', url); a.setAttribute('download', `GPE_${res.strat}_Backtest.csv`); document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    },
+    
+    runMonteCarlo(){
+        const res = Engine.results[this.selectedIdx]; if(!res) return;
+        const years = parseInt(document.getElementById('cfg-mc-years').value) || 1;
+        const days = years * 365; // Crypto year
+        const rets = []; for(let i=1; i<res.curve.length; i++) rets.push(res.curve[i]/res.curve[i-1]-1);
+        const mu = math.mean(rets), sig = math.std(rets); const paths = [];
+        let sumSharpe = 0, sumCAGR = 0, sumMDD = 0, sumVol = 0; const rfDaily = (0.02)/365;
+        for(let s=0; s<50; s++){ 
+            let cur = res.curve[res.curve.length-1], p = [cur], simRets = [], pk = -Infinity, mdd = 0;
+            for(let d=0; d<days; d++){ 
+                const u1 = Math.random(), u2 = Math.random(); const z = Math.sqrt(-2.0 * Math.log(u1 || 1e-9)) * Math.cos(2.0 * Math.PI * (u2 || 1e-9)); const nextVal = cur * Math.exp((mu - 0.5 * sig**2) + sig * z);
+                if(nextVal > pk) pk = nextVal; const dd = (nextVal - pk)/pk; if(dd < mdd) mdd = dd;
+                simRets.push(nextVal/cur - 1); cur = nextVal; p.push(cur); 
+            } 
+            paths.push(p); 
+            const simVol = math.std(simRets) * Math.sqrt(365);
+            const simTotalRet = p[p.length-1]/p[0];
+            const simCAGR = (Math.pow(simTotalRet, 1/years) - 1);
+            const simExcess = math.mean(simRets.map(r => r - rfDaily));
+            const simSharpe = simVol === 0 ? 0 : (simExcess * 365) / simVol;
+            sumVol += simVol; sumCAGR += simCAGR; sumMDD += mdd; sumSharpe += simSharpe;
+        }
+        document.getElementById('mc-avg-sharpe').innerText = (sumSharpe/50).toFixed(2);
+        document.getElementById('mc-avg-cagr').innerText = ((sumCAGR/50)*100).toFixed(1) + "%";
+        document.getElementById('mc-avg-vol').innerText = ((sumVol/50)*100).toFixed(1) + "%";
+        document.getElementById('mc-avg-mdd').innerText = ((sumMDD/50)*100).toFixed(1) + "%";
+        Plotly.newPlot('viz-monte-dashboard', paths.map(p => ({ y: p, type: 'scatter', mode: 'lines', line: { width: 1, color: 'rgba(59, 130, 246, 0.2)' }, showlegend: false })), { margin: { l: 40, r: 10, b: 30, t: 10 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: document.body.classList.contains('dark') ? '#EAECEF' : '#1E2329' }, xaxis: { title: 'Projection Years' } }, { displayModeBar: false });
+    }
+};
+
+const Engine = new QuantEngine();
+window.onload = () => UI.init();
+</script>
+</body>
+</html>
