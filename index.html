@@ -2,9 +2,9 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<title>Global Portfolio Engine v45.1 — Multi-Asset Support</title>
+<title>Global Portfolio Engine v45.1 — Strict Real Data</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Advanced Quant Portfolio Backtesting Engine - Crypto (Binance) & ETF (Yahoo) Support">
+<meta name="description" content="Advanced Quant Portfolio Backtesting Engine - Crypto (Binance) & ETF (Yahoo) Support - NO MOCK">
 
 <!-- ================= LIBRARIES ================= -->
 <script src="https://cdn.tailwindcss.com"></script>
@@ -163,7 +163,7 @@ th.sortable:hover { color: #3b82f6; }
   <div class="max-w-[1800px] mx-auto px-4 h-14 flex justify-between items-center">
     <div class="flex items-center gap-3">
       <h1 class="font-bold text-base flex items-center gap-2 text-dark-900 dark:text-white">
-        <span class="text-xl">🛡️</span> GPE <span class="text-[9px] bg-stock-500 text-white px-1.5 py-0.5 rounded font-bold mono">v45.1 ETF SUPPORT</span>
+        <span class="text-xl">🛡️</span> GPE <span class="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold mono">v45.1 STRICT</span>
       </h1>
     </div>
     <nav class="flex gap-1 bg-gray-100 dark:bg-dark-800 p-1 rounded-lg">
@@ -199,6 +199,7 @@ th.sortable:hover { color: #3b82f6; }
             <option value="ETF" selected>Global ETF (Yahoo)</option>
             <option value="CRYPTO">Crypto (Binance)</option>
           </select>
+          <div class="text-[8px] text-red-400 font-bold mt-1 tracking-tighter">* Strict Real Data Only</div>
       </div>
   </div>
 
@@ -214,7 +215,7 @@ th.sortable:hover { color: #3b82f6; }
             <option value="Equal">1. Equal Weight (1/N)</option>
             <option value="Rank">2. Rank All (Score)</option>
             <option value="Top3">3. Top 3 Leader (Equal)</option>
-            <option value="Top3Rank">4. Top 3 Leader (Rank)</option>
+            <option value="Top3Rank">4. Top 3 Leader (Ranked)</option>
             <option value="Top50">5. Top 50% Filtered</option>
             <option value="AbsMom">6. Absolute Mom (Trend)</option>
             <option value="DualMom">7. Dual Momentum</option>
@@ -303,6 +304,8 @@ th.sortable:hover { color: #3b82f6; }
   <button onclick="Engine.runBatch()" class="w-full bg-gradient-to-r from-stock-500 to-stock-400 py-3 mt-1 rounded-lg font-bold text-white shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-xs tracking-wide uppercase">
     <i class="fas fa-play"></i> <span>Fetch & Run Backtest</span>
   </button>
+  
+  <div id="status-log" class="mt-2 text-[9px] font-mono text-gray-400 h-[100px] overflow-y-auto bg-black/10 rounded p-2 hidden"></div>
 </div>
 </aside>
 
@@ -822,7 +825,7 @@ th.sortable:hover { color: #3b82f6; }
 
 <script>
 /* =========================================================
-   QUANT ENGINE CORE V45.1 (ETF + CRYPTO + PROXY REAL DATA)
+   QUANT ENGINE CORE V45.1 (STRICT REAL DATA MODE)
 ========================================================= */
 
 // Default Universes
@@ -866,8 +869,20 @@ class QuantEngine {
 
   // --- FETCH REAL DATA (ROUTING) ---
   async fetchAssetData(symbol){
-    if(this.marketMode === "CRYPTO") return this.fetchBinanceData(symbol);
-    return this.fetchYahooData(symbol);
+    const logEl = document.getElementById('status-log');
+    logEl.classList.remove('hidden');
+    logEl.innerHTML += `> Fetching ${symbol}...<br>`;
+    
+    let result = null;
+    if(this.marketMode === "CRYPTO") result = await this.fetchBinanceData(symbol);
+    else result = await this.fetchYahooData(symbol);
+
+    if (result) {
+        logEl.innerHTML += `<span class="text-acc-green">> ✅ ${symbol} OK (${result.length} Days)</span><br>`;
+    } else {
+        logEl.innerHTML += `<span class="text-acc-red">> ❌ ${symbol} FAILED (Dropped)</span><br>`;
+    }
+    return result;
   }
 
   // 1. BINANCE API (CRYPTO)
@@ -882,8 +897,8 @@ class QuantEngine {
             price: parseFloat(d[4]) // Index 4 is Close Price
         }));
     } catch(e) {
-        console.warn(`Binance fetch failed for ${symbol}, falling back to mock.`);
-        return this.generateMockFallback(symbol);
+        console.warn(`Binance fetch failed for ${symbol}. Returning NULL (Strict Mode).`);
+        return null; // Return null explicitly, NO MOCK
     }
   }
 
@@ -914,43 +929,68 @@ class QuantEngine {
           }
           return history;
       } catch(e) {
-          console.warn(`Yahoo fetch failed for ${symbol}, falling back to mock.`);
-          return this.generateMockFallback(symbol);
+          console.warn(`Yahoo fetch failed for ${symbol}. Returning NULL (Strict Mode).`);
+          return null; // Return null explicitly, NO MOCK
       }
   }
 
-  generateMockFallback(symbol) {
-      const days = 1000; const history = []; let price = 100;
-      const start = new Date(); start.setDate(start.getDate() - days);
-      for(let i=0; i<days; i++){
-          price *= (1 + (Math.random()-0.5)*0.03); 
-          const d = new Date(start); d.setDate(d.getDate() + i);
-          history.push({ date: d.toISOString().slice(0, 10), price });
-      }
-      return history;
-  }
+  // NO MOCK FUNCTION HERE - Removed as requested
 
   async runBatch(){
     UI.loading(true, this.marketMode === "CRYPTO" ? "FETCHING BINANCE..." : "FETCHING YAHOO FINANCE...");
+    document.getElementById('status-log').innerHTML = ''; // Clear log
+
     const cfg = UI.getParams();
-    const allTickers = [...new Set([...this.universe, cfg.bench])];
+    // 1. Identify all desired tickers
+    let desiredTickers = [...new Set([...this.universe, cfg.bench])];
     
-    const raw = await Promise.all(allTickers.map(s => this.fetchAssetData(s)));
+    // 2. Fetch Data (Parallel)
+    const rawResults = await Promise.all(desiredTickers.map(s => this.fetchAssetData(s)));
     
+    // 3. Filter Valid Data (Strict Mode Logic)
+    const availableTickers = [];
+    const availableData = [];
+    
+    rawResults.forEach((res, i) => {
+        if(res && res.length > 50) { // Require at least 50 days of data
+            availableTickers.push(desiredTickers[i]);
+            availableData.push(res);
+        }
+    });
+
+    if(availableData.length === 0) {
+        alert("CRITICAL ERROR: No data could be fetched. Check your internet connection or proxy status.");
+        UI.loading(false);
+        return;
+    }
+
+    // 4. Align Dates from Valid Data
     const dateSet = new Set(); 
-    raw.forEach(r => r.forEach(x => dateSet.add(x.date)));
+    availableData.forEach(r => r.forEach(x => dateSet.add(x.date)));
     this.dates = [...dateSet].sort();
     
+    // 5. Build allPrices map only for available tickers
     this.allPrices = {};
-    allTickers.forEach((s, idx) => {
-        const lookup = {}; raw[idx].forEach(h => lookup[h.date] = h.price);
-        let last = raw[idx][0]?.price || 100;
+    availableTickers.forEach((s, idx) => {
+        const lookup = {}; availableData[idx].forEach(h => lookup[h.date] = h.price);
+        let last = availableData[idx][0]?.price || 100;
         this.allPrices[s] = this.dates.map(d => { 
             if(lookup[d]) last = lookup[d]; 
             return last; 
         });
     });
 
+    // 6. Update current universe to match what we actually found (Exclude benchmark from strategy universe unless it's in there explicitly)
+    // We filter 'this.universe' to keep only assets that successfully loaded.
+    const activeUniverse = this.universe.filter(u => availableTickers.includes(u));
+    
+    if(activeUniverse.length === 0) {
+        alert("Benchmark loaded, but all portfolio assets failed. Cannot run backtest.");
+        UI.loading(false);
+        return;
+    }
+
+    // 7. Data Slicing
     let startIdx = this.dates.findIndex(d => d >= cfg.start);
     let endIdx = this.dates.findIndex(d => d > cfg.end);
     if (startIdx === -1) startIdx = 0;
@@ -963,7 +1003,9 @@ class QuantEngine {
         UI.loading(false); return; 
     }
 
-    const returns = {}; this.universe.forEach(s => { 
+    // 8. Calculate Returns for Volatility (Only for active universe)
+    const returns = {}; 
+    activeUniverse.forEach(s => { 
         const p = this.allPrices[s]; returns[s] = [0]; 
         for(let i=1; i<p.length; i++) returns[s].push(p[i]/p[i-1]-1); 
     });
@@ -977,7 +1019,7 @@ class QuantEngine {
         for(const rb of cfg.rebals){
           
           let cash = cfg.initial * (1 - cfg.frontEndFee / 100); // Initial Capital
-          let shares = {}; this.universe.forEach(k => shares[k] = 0);
+          let shares = {}; activeUniverse.forEach(k => shares[k] = 0);
           let curve = [], logs = [], totalTO = 0, rebCount = 0;
           
           // Initial Buy
@@ -986,11 +1028,11 @@ class QuantEngine {
              let initWeights = {};
              if(lb > 30) {
                  const sigs0 = {}, vols0 = {};
-                 this.universe.forEach(k => { sigs0[k] = 0; vols0[k] = 0.01; });
-                 initWeights = this.getWeights("Equal", sigs0, vols0);
+                 activeUniverse.forEach(k => { sigs0[k] = 0; vols0[k] = 0.01; });
+                 initWeights = this.getWeights("Equal", sigs0, vols0, activeUniverse);
              } else {
                  const sigs = {}, vols = {};
-                 this.universe.forEach(k => {
+                 activeUniverse.forEach(k => {
                     const pNow = this.allPrices[k][t0];
                     const pastIdx = Math.max(0, t0-lb);
                     const pPast = this.allPrices[k][pastIdx];
@@ -998,10 +1040,10 @@ class QuantEngine {
                     const volSlice = returns[k].slice(Math.max(0, t0-30), t0+1);
                     vols[k] = math.std(volSlice) || 0.01;
                  });
-                 initWeights = this.getWeights(stratKey, sigs, vols);
+                 initWeights = this.getWeights(stratKey, sigs, vols, activeUniverse);
              }
              
-             this.universe.forEach(k => {
+             activeUniverse.forEach(k => {
                  if(initWeights[k] > 0) {
                      const amt = cash * initWeights[k];
                      const netAmt = amt * (1 - cfg.fee/100);
@@ -1013,17 +1055,17 @@ class QuantEngine {
 
           for(let t = startIdx; t < sliceEnd; t++){
             let equityValue = 0;
-            this.universe.forEach(k => equityValue += shares[k] * this.allPrices[k][t]);
+            activeUniverse.forEach(k => equityValue += shares[k] * this.allPrices[k][t]);
             let nav = cash + equityValue;
 
             const feeVal = nav * dailyMgmtFee;
             nav -= feeVal;
             const factor = 1 - dailyMgmtFee;
-            this.universe.forEach(k => shares[k] *= factor);
+            activeUniverse.forEach(k => shares[k] *= factor);
             
             if((t - startIdx) > 0 && (t - startIdx) % rb === 0){
                 const sigs = {}, vols = {};
-                this.universe.forEach(k => {
+                activeUniverse.forEach(k => {
                     const pNow = this.allPrices[k][t];
                     const pastIdx = Math.max(0, t-lb);
                     const pPast = this.allPrices[k][pastIdx];
@@ -1031,17 +1073,17 @@ class QuantEngine {
                     const volSlice = returns[k].slice(Math.max(0, t-30), t+1);
                     vols[k] = math.std(volSlice) || 0.01; 
                 });
-                const targetWeights = this.getWeights(stratKey, sigs, vols);
+                const targetWeights = this.getWeights(stratKey, sigs, vols, activeUniverse);
 
                 // --- BRANCHING LOGIC: LUMP SUM vs DCA ---
                 if (cfg.dca > 0) {
                     // === SMART DCA MODE (NO SELL) ===
                     let inflow = cfg.dca;
                     let currentVal = {}; let currentTotal = 0;
-                    this.universe.forEach(k => { currentVal[k] = shares[k] * this.allPrices[k][t]; currentTotal += currentVal[k]; });
+                    activeUniverse.forEach(k => { currentVal[k] = shares[k] * this.allPrices[k][t]; currentTotal += currentVal[k]; });
                     
                     let deficits = {}; let totalDeficit = 0;
-                    this.universe.forEach(k => {
+                    activeUniverse.forEach(k => {
                         let ideal = (currentTotal + inflow) * targetWeights[k];
                         let diff = ideal - currentVal[k];
                         if (diff > 0) { deficits[k] = diff; totalDeficit += diff; } else { deficits[k] = 0; }
@@ -1051,20 +1093,20 @@ class QuantEngine {
                     let allocationPcts = {}; // For logs (100% of Injection)
                     
                     if (totalDeficit > 0) {
-                        this.universe.forEach(k => {
+                        activeUniverse.forEach(k => {
                             let share = deficits[k] / totalDeficit;
                             let amount = inflow * share; 
                             buyAmounts[k] = amount;
                             allocationPcts[k] = (amount / inflow) * 100;
                         });
                     } else {
-                        this.universe.forEach(k => {
+                        activeUniverse.forEach(k => {
                             buyAmounts[k] = inflow * targetWeights[k];
                             allocationPcts[k] = targetWeights[k] * 100;
                         });
                     }
                     
-                    this.universe.forEach(k => {
+                    activeUniverse.forEach(k => {
                         if(buyAmounts[k] > 0.01){
                              let cost = buyAmounts[k] * (cfg.fee / 100);
                              let netBuy = buyAmounts[k] - cost;
@@ -1080,7 +1122,7 @@ class QuantEngine {
 
                 } else {
                     // === LUMP SUM REBALANCE MODE (SELL/BUY) ===
-                    let currentVal = {}; this.universe.forEach(k => currentVal[k] = shares[k] * this.allPrices[k][t]);
+                    let currentVal = {}; activeUniverse.forEach(k => currentVal[k] = shares[k] * this.allPrices[k][t]);
                     
                     // Execution
                     let newShares = {}, diffPct = {};
@@ -1088,7 +1130,7 @@ class QuantEngine {
                     let totalNav = nav; // NAV before trading costs logic simplification
                     
                     // First pass: Calc Target Value
-                    this.universe.forEach(k => {
+                    activeUniverse.forEach(k => {
                         const targetVal = totalNav * targetWeights[k];
                         const diff = targetVal - currentVal[k];
                         diffPct[k] = (diff / totalNav) * 100; // % of Port
@@ -1099,7 +1141,7 @@ class QuantEngine {
                     let estCost = realTO * (cfg.fee/100);
                     let netNav = totalNav - estCost;
 
-                    this.universe.forEach(k => {
+                    activeUniverse.forEach(k => {
                         const targetVal = netNav * targetWeights[k];
                         newShares[k] = targetVal / this.allPrices[k][t];
                     });
@@ -1114,7 +1156,7 @@ class QuantEngine {
             }
             
             let finalDailyEq = cash;
-            this.universe.forEach(k => finalDailyEq += shares[k] * this.allPrices[k][t]);
+            activeUniverse.forEach(k => finalDailyEq += shares[k] * this.allPrices[k][t]);
             curve.push(finalDailyEq);
           }
           
@@ -1129,7 +1171,7 @@ class QuantEngine {
     }
     
     // Bench Stats
-    const bPriceRaw = this.allPrices[cfg.bench];
+    const bPriceRaw = this.allPrices[cfg.bench]; // cfg.bench must be in availableTickers to work
     if (bPriceRaw) {
         const bPriceSliced = bPriceRaw.slice(startIdx, sliceEnd);
         const startCap = cfg.initial;
@@ -1151,8 +1193,7 @@ class QuantEngine {
     UI.loading(false);
   }
 
-  getWeights(type, sig, vol){
-    const keys = this.universe;
+  getWeights(type, sig, vol, keys){ // Added 'keys' parameter to support activeUniverse
     let items = keys.map(k => ({k, val: sig[k], vol: vol[k]})).filter(x => !isNaN(x.val));
     items.sort((a,b) => b.val - a.val);
     let w = {}; keys.forEach(k => w[k] = 0);
@@ -1507,12 +1548,13 @@ const UI = {
         const sIdx = Engine.dates.findIndex(d => d === res.dates[0]);
         
         // Slice benchmark exactly like the strategy
-        const benchRaw = bAll.slice(sIdx, sIdx + res.curve.length);
-        
-        // Normalize Benchmark line to start exactly where the strategy starts (usually 1000)
-        // This ensures they diverge from the same point visually
-        const startVal = res.curve[0];
-        const bench = benchRaw.map(v => (v / benchRaw[0]) * startVal);
+        // NOTE: If benchmark failed to load, bAll will be undefined
+        let bench = [];
+        if (bAll) {
+            const benchRaw = bAll.slice(sIdx, sIdx + res.curve.length);
+            const startVal = res.curve[0];
+            bench = benchRaw.map(v => (v / benchRaw[0]) * startVal);
+        }
 
         const grad = ctx.createLinearGradient(0, 0, 0, 400); grad.addColorStop(0, 'rgba(59, 130, 246, 0.2)'); grad.addColorStop(1, 'rgba(59, 130, 246, 0)');
         this.chartEq = new Chart(ctx, { type: 'line', data: { labels: res.dates, datasets: [{ label: 'Selected Strategy', data: res.curve, borderColor: '#3b82f6', backgroundColor: grad, borderWidth: 2, fill: true, pointRadius: 0, tension: 0.1 }, { label: `Benchmark (${cfg.bench})`, data: bench, borderColor: '#64748b', borderDash: [4,4], borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.1 }] }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { y: { type: this.isLog ? 'logarithmic' : 'linear', grid: { color: document.body.classList.contains('dark') ? '#2B3139' : '#e2e8f0' }, ticks: { color: '#94a3b8' } }, x: { display: false } }, plugins: { legend: { labels: { color: document.body.classList.contains('dark') ? '#EAECEF' : '#1E2329' } }, tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', titleFont: { family: 'JetBrains Mono' }, bodyFont: { family: 'JetBrains Mono' }, padding: 10, cornerRadius: 8, displayColors: true } } } });
@@ -1526,10 +1568,17 @@ const UI = {
     },
 
     renderCorrelation(){
-        const assets = Engine.universe; const rets = assets.map(s => { const p = Engine.allPrices[s].slice(-90); const r = []; for(let i=1; i<p.length; i++) r.push(p[i]/p[i-1]-1); return r; });
-        const z = assets.map((a1, i) => assets.map((a2, j) => { if(i === j) return 1; const r1 = rets[i], r2 = rets[j], m1 = math.mean(r1), m2 = math.mean(r2); let num = 0, d1 = 0, d2 = 0; for(let k=0; k<r1.length; k++){ num += (r1[k]-m1)*(r2[k]-m2); d1 += (r1[k]-m1)**2; d2 += (r2[k]-m2)**2; } return num / Math.sqrt(d1 * d2); }));
+        const assets = Engine.universe; 
+        // Filter assets that actually loaded in Engine.allPrices
+        const validAssets = assets.filter(s => Engine.allPrices[s] && Engine.allPrices[s].length > 0);
+        
+        if (validAssets.length < 2) return;
+
+        const rets = validAssets.map(s => { const p = Engine.allPrices[s].slice(-90); const r = []; for(let i=1; i<p.length; i++) r.push(p[i]/p[i-1]-1); return r; });
+        const z = validAssets.map((a1, i) => validAssets.map((a2, j) => { if(i === j) return 1; const r1 = rets[i], r2 = rets[j], m1 = math.mean(r1), m2 = math.mean(r2); let num = 0, d1 = 0, d2 = 0; for(let k=0; k<r1.length; k++){ num += (r1[k]-m1)*(r2[k]-m2); d1 += (r1[k]-m1)**2; d2 += (r2[k]-m2)**2; } return num / Math.sqrt(d1 * d2); }));
+        
         if(document.getElementById('viz-correlation')){
-           Plotly.newPlot('viz-correlation', [{ z, x: assets, y: assets, type: 'heatmap', colorscale: 'RdBu', zmin: -1, zmax: 1 }], { margin: { l: 60, r: 10, b: 40, t: 10 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: document.body.classList.contains('dark') ? '#EAECEF' : '#1E2329' } }, { displayModeBar: false });
+           Plotly.newPlot('viz-correlation', [{ z, x: validAssets, y: validAssets, type: 'heatmap', colorscale: 'RdBu', zmin: -1, zmax: 1 }], { margin: { l: 60, r: 10, b: 40, t: 10 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: document.body.classList.contains('dark') ? '#EAECEF' : '#1E2329' } }, { displayModeBar: false });
         }
     },
 
@@ -1675,10 +1724,10 @@ const UI = {
             } else {
                 if(subCurve.length < 50) return 0;
                 if(metric === 'sharpe') {
-                     const rets = []; for(let i=1; i<subCurve.length; i++) rets.push(subCurve[i]/subCurve[i-1]-1);
-                     const vol = math.std(rets) * Math.sqrt(365);
-                     const cagr = Math.pow(subCurve[subCurve.length-1]/subCurve[0], 365/subCurve.length) - 1;
-                     val = vol === 0 ? 0 : (cagr - 0.02) / vol; // Raw Sharpe
+                      const rets = []; for(let i=1; i<subCurve.length; i++) rets.push(subCurve[i]/subCurve[i-1]-1);
+                      const vol = math.std(rets) * Math.sqrt(365);
+                      const cagr = Math.pow(subCurve[subCurve.length-1]/subCurve[0], 365/subCurve.length) - 1;
+                      val = vol === 0 ? 0 : (cagr - 0.02) / vol; // Raw Sharpe
                 }
                 if(metric === 'cagr') {
                     val = (Math.pow(subCurve[subCurve.length-1]/subCurve[0], 365/subCurve.length)-1) * 100; // Raw %
