@@ -526,10 +526,10 @@ select.filter-input option { color: #333; }
                                     <h4>Robustness Score Logic</h4>
                                     <p>การวัดความเสถียรของพารามิเตอร์</p>
                                     <ul>
-                                        <li><strong>Raw Sharpe:</strong> ค่า Sharpe ณ จุดนั้นๆ</li>
-                                        <li><strong>Robust Score:</strong> ค่าเฉลี่ยของจุดนั้น + เพื่อนบ้าน 4 ทิศ (บน/ล่าง/ซ้าย/ขวา)</li>
+                                        <li><strong>Raw Metric:</strong> ค่าของ Metric ณ พารามิเตอร์นั้นโดยตรง</li>
+                                        <li><strong>Robust Score:</strong> ค่าเฉลี่ยแบบถ่วงน้ำหนัก (Gaussian-weighted) ของพารามิเตอร์รอบข้างในพื้นที่ 25×25</li>
                                     </ul>
-                                    <div class="formula-box">Score = Average(Self, Neighbors)</div>
+                                    <div class="formula-box">Score = Σ (w · Metric) / Σ w</div>
                                     <p class="text-[9px] text-gray-400 mt-1">
                                         *ถ้าเป็น MDD/Vol: ค่าน้อย = ดี (Sort Ascending)<br>
                                         *ถ้าเป็น Sharpe/CAGR: ค่ามาก = ดี (Sort Descending)
