@@ -1295,13 +1295,13 @@ const UI = {
         const p = {}; ['cfg-strategy', 'cfg-start', 'cfg-end', 'cfg-bench', 'cfg-fee', 'cfg-frontend-fee', 'cfg-mgmt-fee', 'cfg-rf', 'cfg-initial', 'cfg-dca'].forEach(id => { const el = document.getElementById(id); p[id.replace('cfg-','')] = el ? el.value : null; });
         
         const lbs = parseInt(document.getElementById('cfg-lb-start').value) || 1;
-        const lbe = parseInt(document.getElementById('cfg-lb-end').value) || 350;
-        const lbst = parseInt(document.getElementById('cfg-lb-step').value) || 5;
+        const lbe = parseInt(document.getElementById('cfg-lb-end').value) || 50;
+        const lbst = parseInt(document.getElementById('cfg-lb-step').value) || 2;
         const lookbacks = []; for(let i=lbs; i<=lbe; i+=lbst) lookbacks.push(i);
 
         const rbs = parseInt(document.getElementById('cfg-rb-start').value) || 1;
-        const rbe = parseInt(document.getElementById('cfg-rb-end').value) || 350;
-        const rbst = parseInt(document.getElementById('cfg-rb-step').value) || 5;
+        const rbe = parseInt(document.getElementById('cfg-rb-end').value) || 50;
+        const rbst = parseInt(document.getElementById('cfg-rb-step').value) || 2;
         const rebals = []; for(let i=rbs; i<=rbe; i+=rbst) rebals.push(i);
 
         return {
