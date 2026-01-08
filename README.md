@@ -367,7 +367,8 @@ All combinations of:
 
 Robustness score:
 [
-Robust = mean(Self + Neighbors)
+Robust = weighted mean over local parameter neighborhood
+(using Gaussian kernel smoothing)
 ]
 
 ---
