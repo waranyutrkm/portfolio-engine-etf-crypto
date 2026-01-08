@@ -1767,16 +1767,36 @@ const UI = {
                 const val = zGrid[r][l];
                 if (val === null || isNaN(val)) continue;
                 
-                let sum = val;
-                let count = 1;
+                const RADIUS = 12;          // 25 x 25
+                const SIGMA  = RADIUS / 2;  // ความนุ่มของ Gaussian
                 
-                // Check Neighbors (Up, Down, Left, Right)
-                if (r > 0 && zGrid[r-1][l] !== null) { sum += zGrid[r-1][l]; count++; }
-                if (r < rbs.length - 1 && zGrid[r+1][l] !== null) { sum += zGrid[r+1][l]; count++; }
-                if (l > 0 && zGrid[r][l-1] !== null) { sum += zGrid[r][l-1]; count++; }
-                if (l < lbs.length - 1 && zGrid[r][l+1] !== null) { sum += zGrid[r][l+1]; count++; }
+                let sumWeighted = 0;
+                let sumWeight   = 0;
                 
-                const robustScore = sum / count;
+                for (let dr = -RADIUS; dr <= RADIUS; dr++) {
+                    for (let dl = -RADIUS; dl <= RADIUS; dl++) {
+                        
+                        const rr = r + dr;
+                        const ll = l + dl;
+                        
+                        if (
+                            rr >= 0 && rr < rbs.length &&
+                            ll >= 0 && ll < lbs.length
+                        ) {
+                            const v = zGrid[rr][ll];
+                            
+                            if (v !== null && !isNaN(v)) {
+                                const dist2  = dr * dr + dl * dl;
+                                const weight = Math.exp(-dist2 / (2 * SIGMA * SIGMA));
+                                
+                                sumWeighted += v * weight;
+                                sumWeight   += weight;
+                            }
+                        }
+                    }
+                }
+                
+                const robustScore = sumWeight > 0 ? sumWeighted / sumWeight : null;
                 scores.push({ lb: lbs[l], rb: rbs[r], score: robustScore, raw: val });
             }
         }
