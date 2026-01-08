@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<title>Global Portfolio Engine v47.6 — Dropdown Filter</title>
+<title>Global Portfolio Engine v47.9 — Clean Data Edition</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="Advanced Quant Portfolio Backtesting Engine - Kaizen Edition (Cached Data & Instant Re-run)">
 
@@ -152,7 +152,7 @@ select.filter-input option { color: #333; }
   <div class="max-w-[1800px] mx-auto px-4 h-14 flex justify-between items-center">
     <div class="flex items-center gap-3">
       <h1 class="font-bold text-base flex items-center gap-2 text-dark-900 dark:text-white">
-        <span class="text-xl">🛡️</span> GPE <span class="text-[9px] bg-acc-orange text-white px-1.5 py-0.5 rounded font-bold mono">v47.6</span>
+        <span class="text-xl">🛡️</span> GPE <span class="text-[9px] bg-acc-orange text-white px-1.5 py-0.5 rounded font-bold mono">v47.9</span>
       </h1>
       <nav class="hidden md:flex gap-1 ml-4">
           <button id="btn-tab-dashboard" onclick="UI.switchTab('dashboard')" class="px-3 py-1 text-[10px] font-bold rounded bg-white dark:bg-dark-800 shadow-sm text-stock-600 transition-all">DASHBOARD</button>
@@ -460,6 +460,7 @@ select.filter-input option { color: #333; }
                   </tr>
                 </thead>
                 <tbody id="batch-table-body" class="divide-y dark:divide-dark-700 text-right font-medium"></tbody>
+                <tfoot id="batch-table-foot" class="bg-gray-50 dark:bg-dark-800 font-bold text-gray-500 border-t-2 border-gray-200 dark:border-dark-600 sticky bottom-0 z-10"></tfoot>
               </table>
             </div>
              <div class="px-4 py-2 border-t dark:border-dark-700 bg-gray-50 dark:bg-dark-800 flex justify-between items-center text-[9px] text-gray-500 font-bold">
@@ -726,7 +727,7 @@ select.filter-input option { color: #333; }
 
 <script>
 /* =========================================================
-   QUANT ENGINE CORE V47.6 (KAIZEN + DEEP ANALYTICS)
+   QUANT ENGINE CORE V47.9 (KAIZEN + DATA CLEANING)
 ========================================================= */
 
 const CRYPTO_UNIVERSE = ["BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "DOT", "AVAX", "LINK"];
@@ -1293,14 +1294,14 @@ const UI = {
     getParams(){
         const p = {}; ['cfg-strategy', 'cfg-start', 'cfg-end', 'cfg-bench', 'cfg-fee', 'cfg-frontend-fee', 'cfg-mgmt-fee', 'cfg-rf', 'cfg-initial', 'cfg-dca'].forEach(id => { const el = document.getElementById(id); p[id.replace('cfg-','')] = el ? el.value : null; });
         
-        const lbs = parseInt(document.getElementById('cfg-lb-start').value) || 30;
-        const lbe = parseInt(document.getElementById('cfg-lb-end').value) || 30;
-        const lbst = parseInt(document.getElementById('cfg-lb-step').value) || 10;
+        const lbs = parseInt(document.getElementById('cfg-lb-start').value) || 1;
+        const lbe = parseInt(document.getElementById('cfg-lb-end').value) || 350;
+        const lbst = parseInt(document.getElementById('cfg-lb-step').value) || 5;
         const lookbacks = []; for(let i=lbs; i<=lbe; i+=lbst) lookbacks.push(i);
 
-        const rbs = parseInt(document.getElementById('cfg-rb-start').value) || 30;
-        const rbe = parseInt(document.getElementById('cfg-rb-end').value) || 30;
-        const rbst = parseInt(document.getElementById('cfg-rb-step').value) || 10;
+        const rbs = parseInt(document.getElementById('cfg-rb-start').value) || 1;
+        const rbe = parseInt(document.getElementById('cfg-rb-end').value) || 350;
+        const rbst = parseInt(document.getElementById('cfg-rb-step').value) || 5;
         const rebals = []; for(let i=rbs; i<=rbe; i+=rbst) rebals.push(i);
 
         return {
@@ -1408,7 +1409,14 @@ const UI = {
                 matchMdd = Math.abs(parseFloat(r.mdd)) <= Math.abs(fmdd);
             }
 
-            return matchStrat && matchLb && matchRb && matchCagr && matchSharpe && matchSortino && matchCalmar && matchMdd;
+            // Data Integrity Check (Kaizen V47.9 Improvement)
+            const isSafe = (val) => {
+                const num = parseFloat(val);
+                return !isNaN(num) && Number.isFinite(num);
+            };
+            const validData = isSafe(r.cagr) && isSafe(r.sharpe) && isSafe(r.sortino) && isSafe(r.calmar) && isSafe(r.mdd);
+
+            return matchStrat && matchLb && matchRb && matchCagr && matchSharpe && matchSortino && matchCalmar && matchMdd && validData;
         });
 
         this.filteredData.sort((a,b) => {
@@ -1425,6 +1433,51 @@ const UI = {
         document.getElementById('pagination-info').innerText = `${Math.min(start+1, this.filteredData.length)}-${Math.min(end, this.filteredData.length)} of ${this.filteredData.length}`;
         document.getElementById('btn-prev').disabled = this.currentPage === 1;
         document.getElementById('btn-next').disabled = end >= this.filteredData.length;
+
+        // Calculate Robust Averages (Filter out NaNs first)
+        let sumCagr=0, cCagr=0;
+        let sumSharpe=0, cSharpe=0;
+        let sumSortino=0, cSortino=0;
+        let sumCalmar=0, cCalmar=0;
+        let sumMdd=0, cMdd=0;
+        
+        const n = this.filteredData.length; // Count of matching rows
+        
+        if(n > 0) {
+            this.filteredData.forEach(r => {
+                const vCagr = parseFloat(r.cagr);
+                if(Number.isFinite(vCagr)) { sumCagr += vCagr; cCagr++; }
+
+                const vSharpe = parseFloat(r.sharpe);
+                if(Number.isFinite(vSharpe)) { sumSharpe += vSharpe; cSharpe++; }
+
+                const vSortino = parseFloat(r.sortino);
+                if(Number.isFinite(vSortino)) { sumSortino += vSortino; cSortino++; }
+
+                const vCalmar = parseFloat(r.calmar);
+                if(Number.isFinite(vCalmar)) { sumCalmar += vCalmar; cCalmar++; }
+
+                const vMdd = parseFloat(r.mdd);
+                if(Number.isFinite(vMdd)) { sumMdd += vMdd; cMdd++; }
+            });
+        }
+
+        const avgHtml = n > 0 ? `
+            <tr>
+                <td class="p-3 text-left border-t-2 border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-800 font-bold text-stock-600">AVERAGE (N=${n})</td>
+                <td class="p-3 text-center border-t-2 border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-800">-</td>
+                <td class="p-3 text-center border-t-2 border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-800">-</td>
+                <td class="p-3 text-right border-t-2 border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-800 font-bold text-acc-green">${cCagr ? (sumCagr/cCagr).toFixed(2) : '-'}%</td>
+                <td class="p-3 text-right border-t-2 border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-800 font-bold text-stock-600">${cSharpe ? (sumSharpe/cSharpe).toFixed(2) : '-'}</td>
+                <td class="p-3 text-right border-t-2 border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-800 font-bold text-blue-500">${cSortino ? (sumSortino/cSortino).toFixed(2) : '-'}</td>
+                <td class="p-3 text-right border-t-2 border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-800 font-bold text-purple-500">${cCalmar ? (sumCalmar/cCalmar).toFixed(2) : '-'}</td>
+                <td class="p-3 text-right border-t-2 border-gray-300 dark:border-dark-600 bg-gray-50 dark:bg-dark-800 font-bold text-acc-red">${cMdd ? (sumMdd/cMdd).toFixed(2) : '-'}%</td>
+            </tr>
+        ` : '';
+
+        // Update Footer
+        const footer = document.getElementById('batch-table-foot');
+        if(footer) footer.innerHTML = avgHtml;
 
         if(!paginatedData.length){ b.innerHTML = '<tr><td colspan="8" class="py-20 text-center text-gray-400 italic">No matches found.</td></tr>'; return; }
         b.innerHTML = paginatedData.map((r) => {
